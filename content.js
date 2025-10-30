@@ -800,13 +800,12 @@ class JiraNotesExtension {
         
         const issueKey = issueMatch[1];
         
-        // ДВОЙНАЯ ПРОВЕРКА: флаг на карточке И наличие элементов
-        const hasStatus = card.querySelector('.jira-personal-status');
+        // ПРОВЕРКА: есть ли уже адрес на карточке
         const hasAddress = link.querySelector('.jira-personal-address-inline');
         const isProcessed = card.hasAttribute('data-jira-processed');
         
-        // Если карточка УЖЕ обработана И элементы есть - пропускаем (НЕ ТРОГАЕМ!)
-        if (isProcessed && hasStatus && hasAddress) {
+        // Если карточка УЖЕ обработана И адрес есть - пропускаем
+        if (isProcessed && hasAddress) {
           return; // Уже полностью обработана!
         }
         
@@ -817,7 +816,9 @@ class JiraNotesExtension {
           card.style.position = 'relative';
         }
 
-        // Добавляем статус ТОЛЬКО если его нет
+        // Проверяем наличие статуса
+        const hasStatus = card.querySelector('.jira-personal-status');
+        // Статус отображаем только на самой карточке
         if (this.statusCache[issueKey] && !hasStatus) {
           const statusDot = document.createElement('div');
           statusDot.className = `jira-personal-status status-${this.statusCache[issueKey]}`;
@@ -839,7 +840,7 @@ class JiraNotesExtension {
           // Создаем адрес
           const addressSpan = document.createElement('div');
           addressSpan.className = 'jira-personal-address-inline';
-          addressSpan.textContent = `📍 ${this.addressCache[issueKey]}`;
+          addressSpan.textContent = ` ${this.addressCache[issueKey]}`;
           addressSpan.title = `Адрес: ${this.addressCache[issueKey]} (${issueKey})`;
           addressSpan.style.cssText = `
             display: inline-block !important;
