@@ -11,6 +11,12 @@ class JiraNotesExtension {
     this.isUpdating = false; // Флаг для предотвращения множественных обновлений
     this.syncMode = 'personal'; // По умолчанию личный режим
     this.syncInitialized = false;
+    
+    // Кеш для оптимизации производительности
+    this.statusCache = {}; // { issueKey: status }
+    this.addressCache = {}; // { issueKey: address }
+    this.processedCards = new Set(); // Карточки, которые уже обработаны
+    this.lastUpdateTime = 0; // Время последнего обновления
   }
 
   // Инициализация расширения
@@ -717,8 +723,15 @@ class JiraNotesExtension {
     });
   }
 
-  // Обновляем ВСЕ карточки на доске
+  // Обновляем ВСЕ карточки на доске (ОПТИМИЗИРОВАННАЯ ВЕРСИЯ - БЕЗ МЕРЦАНИЯ)
   async updateAllCards() {
+    // Дебаунсинг - не обновляем чаще чем раз в 2 секунды
+    const now = Date.now();
+    if (now - this.lastUpdateTime < 2000) {
+      console.log('⏭️ Skipping update - debouncing (too soon)');
+      return;
+    }
+    
     // Если уже идет обновление, пропускаем
     if (this.isUpdating) {
       console.log('⏭️ Skipping update - already in progress');
@@ -726,42 +739,56 @@ class JiraNotesExtension {
     }
     
     this.isUpdating = true;
+    this.lastUpdateTime = now;
     
     try {
-      // Сначала удаляем ВСЕ наши элементы со страницы
-      document.querySelectorAll('.jira-personal-status').forEach(el => el.remove());
-      document.querySelectorAll('.jira-personal-address-inline').forEach(el => el.remove());
-      
-      // Получаем все сохраненные данные
+      // Получаем все сохраненные данные ОДИН РАЗ
       const allData = await chrome.storage.local.get(null);
       
-      // Собираем статусы и адреса
-      const statuses = {};
-      const addresses = {};
+      // Обновляем кеш только если данные изменились
+      let cacheUpdated = false;
+      const newStatusCache = {};
+      const newAddressCache = {};
       
       Object.keys(allData).forEach(key => {
         if (key.startsWith('status_')) {
           const issueKey = key.replace('status_', '');
-          statuses[issueKey] = allData[key];
+          newStatusCache[issueKey] = allData[key];
         }
         if (key.startsWith('address_')) {
           const issueKey = key.replace('address_', '');
-          addresses[issueKey] = allData[key];
+          newAddressCache[issueKey] = allData[key];
         }
       });
-
-      console.log(`🔄 Updating ${Object.keys(statuses).length} statuses and ${Object.keys(addresses).length} addresses`);
-      if (Object.keys(addresses).length > 0) {
-        console.log(' Addresses:', addresses);
+      
+      // Проверяем изменился ли кеш
+      if (JSON.stringify(this.statusCache) !== JSON.stringify(newStatusCache) ||
+          JSON.stringify(this.addressCache) !== JSON.stringify(newAddressCache)) {
+        this.statusCache = newStatusCache;
+        this.addressCache = newAddressCache;
+        cacheUpdated = true;
+        
+        // Если данные изменились - убираем ВСЕ старые элементы и сбрасываем флаги обработки
+        document.querySelectorAll('.jira-personal-status').forEach(el => el.remove());
+        document.querySelectorAll('.jira-personal-address-inline').forEach(el => el.remove());
+        document.querySelectorAll('[data-jira-processed]').forEach(card => {
+          card.removeAttribute('data-jira-processed');
+        });
+        
+        console.log(`📦 Cache updated: ${Object.keys(this.statusCache).length} statuses, ${Object.keys(this.addressCache).length} addresses`);
+      } else {
+        console.log('✅ Cache unchanged, only processing new cards');
       }
 
-      // Ищем все карточки по разным селекторам
+      // Ищем все карточки
       const allCards = document.querySelectorAll('[data-testid*="platform-card"], [data-testid*="card"], div[draggable="true"]');
       
-      console.log(`🎴 Found ${allCards.length} cards on board`);
+      console.log(`🎴 Processing ${allCards.length} cards`);
+      
+      let newCardsCount = 0;
       
       allCards.forEach(card => {
-        // Ищем ссылку с номером задачи внутри карточки
+        // Ищем ссылку с номером задачи
         const link = card.querySelector('a[href*="/browse/"], a[href*="selectedIssue="]');
         if (!link) return;
         
@@ -773,73 +800,69 @@ class JiraNotesExtension {
         
         const issueKey = issueMatch[1];
         
-        // Только для первой карточки с адресом выводим структуру
-        if (addresses[issueKey] && !window._jiraDebugDone) {
-          console.log(`🔍 DEBUG: Card structure for ${issueKey}:`, card);
-          console.log(`🔍 Link element:`, link);
-          console.log(`🔍 Link parent:`, link.parentElement);
-          window._jiraDebugDone = true;
+        // Если карточка УЖЕ обработана - пропускаем (НЕ ТРОГАЕМ!)
+        if (card.hasAttribute('data-jira-processed')) {
+          return; // Уже обработана, не мерцаем!
         }
         
+        newCardsCount++;
+        
+        // Помечаем карточку как обработанную
+        card.setAttribute('data-jira-processed', 'true');
         card.style.position = 'relative';
 
-        // Добавляем статус (точка в правом верхнем углу) ОДИН РАЗ
-        if (statuses[issueKey]) {
-          // Проверяем, нет ли уже статуса на этой карточке
-          if (!card.querySelector('.jira-personal-status')) {
-            const statusDot = document.createElement('div');
-            statusDot.className = `jira-personal-status status-${statuses[issueKey]}`;
-            statusDot.title = `Статус: ${statuses[issueKey] === 'red' ? 'Проблема' : statuses[issueKey] === 'yellow' ? 'В процессе' : 'Готово'}`;
-            statusDot.setAttribute('data-issue-key', issueKey);
-            card.appendChild(statusDot);
-          }
+        // Добавляем статус
+        if (this.statusCache[issueKey]) {
+          const statusDot = document.createElement('div');
+          statusDot.className = `jira-personal-status status-${this.statusCache[issueKey]}`;
+          statusDot.title = `Статус: ${this.statusCache[issueKey] === 'red' ? 'Проблема' : this.statusCache[issueKey] === 'yellow' ? 'В процессе' : 'Готово'}`;
+          statusDot.setAttribute('data-issue-key', issueKey);
+          card.appendChild(statusDot);
         }
 
-        // Добавляем адрес ВМЕСТО/РЯДОМ с номером задачи
-        if (addresses[issueKey]) {
-          console.log(`✏️ Adding address to ${issueKey}: ${addresses[issueKey]}`);
+        // Добавляем адрес
+        if (this.addressCache[issueKey]) {
+          // Скрываем номер задачи
+          const childDivs = link.querySelectorAll('div');
+          childDivs.forEach(div => {
+            if (div.textContent.includes(issueKey) && !div.classList.contains('jira-personal-address-inline')) {
+              div.style.display = 'none';
+            }
+          });
           
-          // Простой способ - добавляем адрес прямо к ссылке
-          if (link && !link.querySelector('.jira-personal-address-inline')) {
-            // Скрываем текст с номером задачи
-            const childDivs = link.querySelectorAll('div');
-            childDivs.forEach(div => {
-              if (div.textContent.includes(issueKey)) {
-                div.style.display = 'none';
-              }
-            });
-            
-            // Создаем адрес
-            const addressSpan = document.createElement('div');
-            addressSpan.className = 'jira-personal-address-inline';
-            addressSpan.textContent = ` ${addresses[issueKey]}`;
-            addressSpan.title = `Адрес: ${addresses[issueKey]} (${issueKey})`;
-            addressSpan.style.cssText = `
-              display: inline-block !important;
-              background: linear-gradient(135deg, #0052CC 0%, #0747A6 100%) !important;
-              color: white !important;
-              padding: 4px 10px !important;
-              border-radius: 6px !important;
-              font-size: 13px !important;
-              font-weight: 700 !important;
-              white-space: nowrap !important;
-              box-shadow: 0 2px 8px rgba(0, 82, 204, 0.3) !important;
-              letter-spacing: 0.3px !important;
-              max-width: 200px !important;
-              overflow: hidden !important;
-              text-overflow: ellipsis !important;
-            `;
-            
-            // Добавляем адрес в ссылку
-            link.appendChild(addressSpan);
-            
-            console.log(`✅ Address added successfully to ${issueKey}`);
-          }
+          // Создаем адрес
+          const addressSpan = document.createElement('div');
+          addressSpan.className = 'jira-personal-address-inline';
+          addressSpan.textContent = `📍 ${this.addressCache[issueKey]}`;
+          addressSpan.title = `Адрес: ${this.addressCache[issueKey]} (${issueKey})`;
+          addressSpan.style.cssText = `
+            display: inline-block !important;
+            background: linear-gradient(135deg, #0052CC 0%, #0747A6 100%) !important;
+            color: white !important;
+            padding: 4px 10px !important;
+            border-radius: 6px !important;
+            font-size: 13px !important;
+            font-weight: 700 !important;
+            white-space: nowrap !important;
+            box-shadow: 0 2px 8px rgba(0, 82, 204, 0.3) !important;
+            letter-spacing: 0.3px !important;
+            max-width: 200px !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
+          `;
+          
+          link.appendChild(addressSpan);
         }
       });
-    
+      
+      if (newCardsCount > 0) {
+        console.log(`✅ Processed ${newCardsCount} NEW cards (${allCards.length - newCardsCount} already done)`);
+      } else {
+        console.log(`✅ All ${allCards.length} cards already processed`);
+      }
+    } catch (error) {
+      console.error('❌ Error updating cards:', error);
     } finally {
-      // Снимаем флаг обновления
       this.isUpdating = false;
     }
   }
@@ -904,10 +927,8 @@ class JiraNotesExtension {
     // Дополнительно следим за изменениями URL
     this.watchUrlChanges();
     
-    // Периодически обновляем карточки (каждые 5 секунд вместо 3)
-    setInterval(() => {
-      this.updateAllCards();
-    }, 5000);
+    // Обновляем карточки ТОЛЬКО при изменениях через MutationObserver
+    // Убрали постоянный setInterval для предотвращения мерцания
   }
 
   // Отслеживаем изменения URL (для selectedIssue параметра)

@@ -1,14 +1,15 @@
 // Firebase Configuration
 // Замените значения на ваши из Firebase Console
 
-export const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "your-project.firebaseapp.com",
-  databaseURL: "https://your-project-default-rtdb.firebaseio.com",
-  projectId: "your-project-id",
-  storageBucket: "your-project.appspot.com",
-  messagingSenderId: "123456789",
-  appId: "1:123456789:web:abcdef"
+const firebaseConfig = {
+  apiKey: "AIzaSyDg9DQ2b1rn-VSn_aNntEbL1nYMQpvFaF4",
+  authDomain: "jira-notes-sync.firebaseapp.com",
+  databaseURL: "https://jira-notes-sync-default-rtdb.firebaseio.com",
+  projectId: "jira-notes-sync",
+  storageBucket: "jira-notes-sync.firebasestorage.app",
+  messagingSenderId: "799998302603",
+  appId: "1:799998302603:web:91f5d1c752dde37319778e",
+  measurementId: "G-TJV6DDXLSZ"
 };
 
 // Инструкция по получению конфигурации:
