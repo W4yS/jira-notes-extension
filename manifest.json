@@ -1,15 +1,18 @@
 {
   "manifest_version": 3,
   "name": "Jira Personal Notes",
-  "version": "1.0.0",
-  "description": "Добавляйте личные заметки к задачам Jira, видимые только вам",
+  "version": "1.1.0",
+  "description": "Добавляйте личные заметки к задачам Jira с синхронизацией между пользователями",
   "permissions": [
     "storage",
     "activeTab"
   ],
   "host_permissions": [
     "*://*.atlassian.net/*",
-    "*://jira.*/*"
+    "*://jira.*/*",
+    "https://*.firebaseio.com/*",
+    "https://*.googleapis.com/*",
+    "https://www.gstatic.com/*"
   ],
   "content_scripts": [
     {
@@ -24,5 +27,15 @@
   ],
   "action": {
     "default_popup": "popup.html"
-  }
+  },
+  "options_page": "settings.html",
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' https://www.gstatic.com; object-src 'self'"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["firebase-config.js", "sync-service.js"],
+      "matches": ["*://*.atlassian.net/*"]
+    }
+  ]
 }

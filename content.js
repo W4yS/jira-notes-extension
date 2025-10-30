@@ -1,11 +1,16 @@
 // Главный скрипт расширения для добавления заметок к задачам Jira
 
+// Динамический импорт сервиса синхронизации
+let syncService = null;
+
 class JiraNotesExtension {
   constructor() {
     this.currentIssueKey = null;
     this.notesContainer = null;
     this.initialized = false;
     this.isUpdating = false; // Флаг для предотвращения множественных обновлений
+    this.syncMode = 'personal'; // По умолчанию личный режим
+    this.syncInitialized = false;
   }
 
   // Инициализация расширения
@@ -24,10 +29,130 @@ class JiraNotesExtension {
   }
 
   // Запуск основной логики
-  start() {
+  async start() {
+    await this.initSync(); // Инициализируем синхронизацию
     this.detectIssueKey();
     this.injectNotesPanel();
     this.setupObserver();
+  }
+
+  // Инициализация синхронизации
+  async initSync() {
+    try {
+      const settings = await chrome.storage.local.get(['syncMode', 'teamId', 'userEmail', 'userName', 'userColor']);
+      this.syncMode = settings.syncMode || 'personal';
+
+      console.log(`🔄 Sync mode: ${this.syncMode}`);
+
+      if (this.syncMode === 'team' && settings.teamId && settings.userEmail) {
+        // Загружаем сервис синхронизации динамически
+        if (!syncService) {
+          const module = await import(chrome.runtime.getURL('sync-service.js'));
+          syncService = module.syncService;
+        }
+
+        // Инициализируем соединение
+        const success = await syncService.init(
+          settings.teamId,
+          settings.userEmail,
+          settings.userName,
+          settings.userColor
+        );
+
+        if (success) {
+          this.syncInitialized = true;
+          console.log('✅ Sync service initialized');
+
+          // Подписываемся на изменения
+          syncService.subscribeToChanges((notes) => {
+            this.handleSyncUpdate(notes);
+          });
+
+          // Загружаем командные заметки
+          await syncService.loadAllTeamNotes();
+        } else {
+          console.warn('⚠️ Sync initialization failed, using local mode');
+        }
+      } else {
+        console.log('👤 Using personal mode (local storage only)');
+      }
+    } catch (error) {
+      console.error('❌ Sync initialization error:', error);
+      this.syncMode = 'personal';
+    }
+  }
+
+  // Обработка обновлений из синхронизации
+  handleSyncUpdate(notes) {
+    console.log('🔄 Sync update received:', Object.keys(notes).length, 'notes');
+    
+    // Обновляем все карточки на доске
+    this.updateAllCards();
+
+    // Если открыта заметка для текущей задачи - обновляем её
+    if (this.currentIssueKey && notes[this.currentIssueKey]) {
+      const note = notes[this.currentIssueKey];
+      this.updateCurrentNotePanel(note);
+    }
+  }
+
+  // Обновление текущей панели заметок (при получении данных из синхронизации)
+  updateCurrentNotePanel(note) {
+    const textarea = document.querySelector('.jira-notes-textarea');
+    if (textarea && textarea.value !== note.text) {
+      textarea.value = note.text || '';
+    }
+
+    // Обновляем статус
+    document.querySelectorAll('.status-button').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.status === note.status);
+    });
+
+    // Показываем информацию о последнем редакторе
+    this.showLastModifiedInfo(note);
+  }
+
+  // Показ информации о последнем редакторе
+  showLastModifiedInfo(note) {
+    if (!note.lastModifiedBy || note.lastModifiedBy === this.userId) return;
+
+    // Удаляем старый индикатор
+    const oldIndicator = document.querySelector('.sync-editor-info');
+    if (oldIndicator) oldIndicator.remove();
+
+    // Создаём новый
+    const indicator = document.createElement('div');
+    indicator.className = 'sync-editor-info';
+    indicator.style.cssText = `
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: #f5f5f5;
+      border-radius: 6px;
+      font-size: 12px;
+      color: #666;
+      margin-top: 8px;
+    `;
+
+    const colorDot = document.createElement('div');
+    colorDot.style.cssText = `
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: ${note.lastModifiedByColor || '#666'};
+    `;
+
+    const timeStr = note.lastModified ? new Date(note.lastModified).toLocaleString('ru-RU') : '';
+    indicator.innerHTML = `
+      ${colorDot.outerHTML}
+      <span>Отредактировано: <strong>${note.lastModifiedByName || 'Unknown'}</strong> ${timeStr}</span>
+    `;
+
+    const panel = document.querySelector('.jira-notes-panel');
+    if (panel) {
+      panel.appendChild(indicator);
+    }
   }
 
   // Определяем ключ текущей задачи
@@ -516,11 +641,25 @@ class JiraNotesExtension {
     const noteKey = `note_${this.currentIssueKey}`;
 
     try {
-      await chrome.storage.local.set({
-        [noteKey]: notes
-      });
-
-      console.log('Notes saved for', this.currentIssueKey);
+      // Если включена синхронизация - сохраняем через sync service
+      if (this.syncMode === 'team' && syncService && this.syncInitialized) {
+        const currentStatus = await chrome.storage.local.get(`status_${this.currentIssueKey}`);
+        const currentAddress = await chrome.storage.local.get(`address_${this.currentIssueKey}`);
+        
+        await syncService.saveNote(this.currentIssueKey, {
+          text: notes,
+          status: currentStatus[`status_${this.currentIssueKey}`] || null,
+          address: currentAddress[`address_${this.currentIssueKey}`] || null
+        });
+        
+        console.log('💾 Notes synced for', this.currentIssueKey);
+      } else {
+        // Локальное сохранение
+        await chrome.storage.local.set({
+          [noteKey]: notes
+        });
+        console.log('📝 Notes saved locally for', this.currentIssueKey);
+      }
     } catch (error) {
       console.error('Error saving notes:', error);
     }
@@ -532,10 +671,25 @@ class JiraNotesExtension {
 
     try {
       if (status) {
-        await chrome.storage.local.set({
-          [statusKey]: status
-        });
-        console.log(`✅ Status "${status}" saved for ${this.currentIssueKey}`);
+        // Если включена синхронизация - сохраняем через sync service
+        if (this.syncMode === 'team' && syncService && this.syncInitialized) {
+          const currentNote = await chrome.storage.local.get(`note_${this.currentIssueKey}`);
+          const currentAddress = await chrome.storage.local.get(`address_${this.currentIssueKey}`);
+          
+          await syncService.saveNote(this.currentIssueKey, {
+            text: currentNote[`note_${this.currentIssueKey}`] || '',
+            status: status,
+            address: currentAddress[`address_${this.currentIssueKey}`] || null
+          });
+          
+          console.log(`✅ Status "${status}" synced for ${this.currentIssueKey}`);
+        } else {
+          // Локальное сохранение
+          await chrome.storage.local.set({
+            [statusKey]: status
+          });
+          console.log(`✅ Status "${status}" saved locally for ${this.currentIssueKey}`);
+        }
       } else {
         await chrome.storage.local.remove(statusKey);
         console.log(`🗑️ Status cleared for ${this.currentIssueKey}`);

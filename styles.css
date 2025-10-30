@@ -547,3 +547,52 @@
     color: #93c5fd !important;
   }
 }
+
+/* Стили для синхронизации */
+.sync-indicator {
+  display: inline-block;
+  font-size: 10px;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.sync-indicator.online {
+  animation: pulse-green 2s ease-in-out infinite;
+}
+
+.sync-indicator.offline {
+  animation: none;
+  opacity: 0.6;
+}
+
+@keyframes pulse-green {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.sync-editor-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #f5f5f5;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #666;
+  margin-top: 8px;
+  border-left: 3px solid;
+}
+
+.sync-editor-info[data-color] {
+  border-left-color: var(--editor-color, #667eea);
+}
+
+@media (prefers-color-scheme: dark) {
+  .sync-editor-info {
+    background: #374151;
+    color: #9ca3af;
+  }
+}
