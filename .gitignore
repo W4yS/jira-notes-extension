@@ -1,0 +1,22 @@
+# Node modules (если понадобятся)
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Temporary files
+*.log
+*.tmp
+
+# Chrome extension development
+*.pem
+*.crx
+*.zip
+
+# User data
+storage_backup.json

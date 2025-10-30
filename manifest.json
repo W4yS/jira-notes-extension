@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Jira Personal Notes",
+  "version": "1.0.0",
+  "description": "Добавляйте личные заметки к задачам Jira, видимые только вам",
+  "permissions": [
+    "storage",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "*://*.atlassian.net/*",
+    "*://jira.*/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.atlassian.net/browse/*",
+        "*://*.atlassian.net/jira/*"
+      ],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_end"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  }
+}
