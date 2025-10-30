@@ -20,3 +20,6 @@ Thumbs.db
 
 # User data
 storage_backup.json
+
+# Firebase configuration with sensitive data
+firebase-config.js
