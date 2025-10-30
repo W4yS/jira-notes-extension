@@ -800,19 +800,25 @@ class JiraNotesExtension {
         
         const issueKey = issueMatch[1];
         
-        // Если карточка УЖЕ обработана - пропускаем (НЕ ТРОГАЕМ!)
-        if (card.hasAttribute('data-jira-processed')) {
-          return; // Уже обработана, не мерцаем!
+        // ДВОЙНАЯ ПРОВЕРКА: флаг на карточке И наличие элементов
+        const hasStatus = card.querySelector('.jira-personal-status');
+        const hasAddress = link.querySelector('.jira-personal-address-inline');
+        const isProcessed = card.hasAttribute('data-jira-processed');
+        
+        // Если карточка УЖЕ обработана И элементы есть - пропускаем (НЕ ТРОГАЕМ!)
+        if (isProcessed && hasStatus && hasAddress) {
+          return; // Уже полностью обработана!
         }
         
-        newCardsCount++;
-        
-        // Помечаем карточку как обработанную
-        card.setAttribute('data-jira-processed', 'true');
-        card.style.position = 'relative';
+        // Если частично обработана - докручиваем недостающее
+        if (!isProcessed) {
+          newCardsCount++;
+          card.setAttribute('data-jira-processed', 'true');
+          card.style.position = 'relative';
+        }
 
-        // Добавляем статус
-        if (this.statusCache[issueKey]) {
+        // Добавляем статус ТОЛЬКО если его нет
+        if (this.statusCache[issueKey] && !hasStatus) {
           const statusDot = document.createElement('div');
           statusDot.className = `jira-personal-status status-${this.statusCache[issueKey]}`;
           statusDot.title = `Статус: ${this.statusCache[issueKey] === 'red' ? 'Проблема' : this.statusCache[issueKey] === 'yellow' ? 'В процессе' : 'Готово'}`;
@@ -820,8 +826,8 @@ class JiraNotesExtension {
           card.appendChild(statusDot);
         }
 
-        // Добавляем адрес
-        if (this.addressCache[issueKey]) {
+        // Добавляем адрес ТОЛЬКО если его нет
+        if (this.addressCache[issueKey] && !hasAddress) {
           // Скрываем номер задачи
           const childDivs = link.querySelectorAll('div');
           childDivs.forEach(div => {
