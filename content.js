@@ -36,10 +36,35 @@ class JiraNotesExtension {
 
   // Запуск основной логики
   async start() {
+    // ОЧИЩАЕМ ВСЕ СТАРЫЕ ЭЛЕМЕНТЫ при инициализации расширения
+    this.cleanupOldElements();
+    
     await this.initSync(); // Инициализируем синхронизацию
     this.detectIssueKey();
     this.injectNotesPanel();
     this.setupObserver();
+  }
+
+  // Очистка старых элементов расширения (при перезагрузке)
+  cleanupOldElements() {
+    console.log('🧹 Cleaning up old elements...');
+    
+    // Удаляем все старые статусы и адреса
+    document.querySelectorAll('.jira-personal-status').forEach(el => {
+      console.log('Removing old status:', el);
+      el.remove();
+    });
+    document.querySelectorAll('.jira-personal-address-inline').forEach(el => {
+      console.log('Removing old address:', el);
+      el.remove();
+    });
+    
+    // Сбрасываем флаги обработки
+    document.querySelectorAll('[data-jira-processed]').forEach(card => {
+      card.removeAttribute('data-jira-processed');
+    });
+    
+    console.log('✅ Cleanup complete');
   }
 
   // Инициализация синхронизации
@@ -780,16 +805,17 @@ class JiraNotesExtension {
         console.log('✅ Cache unchanged, only processing new cards');
       }
 
-      // Ищем все карточки
-      const allCards = document.querySelectorAll('[data-testid*="platform-card"], [data-testid*="card"], div[draggable="true"]');
+      // Ищем все карточки - ищем по ВЕРХНЕМУ контейнеру карточки
+      const allCards = document.querySelectorAll('[data-testid="software-board.board-container.board.card-container.card-with-icc"]');
       
       console.log(`🎴 Processing ${allCards.length} cards`);
       
       let newCardsCount = 0;
       
-      allCards.forEach(card => {
-        // Ищем ссылку с номером задачи
-        const link = card.querySelector('a[href*="/browse/"], a[href*="selectedIssue="]');
+      allCards.forEach(cardContainer => {
+        // cardContainer - это <div data-testid="software-board.board-container.board.card-container.card-with-icc">
+        // Ищем ссылку с номером задачи ВНУТРИ
+        const link = cardContainer.querySelector('a[href*="/browse/"], a[href*="selectedIssue="]');
         if (!link) return;
         
         const href = link.href || '';
@@ -800,31 +826,30 @@ class JiraNotesExtension {
         
         const issueKey = issueMatch[1];
         
-        // ПРОВЕРКА: есть ли уже адрес на карточке
+        // ПРОВЕРКА: есть ли уже элементы на КОНТЕЙНЕРЕ карточки
+        const hasStatus = cardContainer.querySelector('.jira-personal-status');
         const hasAddress = link.querySelector('.jira-personal-address-inline');
-        const isProcessed = card.hasAttribute('data-jira-processed');
+        const isProcessed = cardContainer.hasAttribute('data-jira-processed');
         
-        // Если карточка УЖЕ обработана И адрес есть - пропускаем
-        if (isProcessed && hasAddress) {
+        // Если карточка УЖЕ обработана И элементы есть - пропускаем
+        if (isProcessed && hasStatus && hasAddress) {
           return; // Уже полностью обработана!
         }
         
         // Если частично обработана - докручиваем недостающее
         if (!isProcessed) {
           newCardsCount++;
-          card.setAttribute('data-jira-processed', 'true');
-          card.style.position = 'relative';
+          cardContainer.setAttribute('data-jira-processed', 'true');
+          cardContainer.style.position = 'relative';
         }
 
-        // Проверяем наличие статуса
-        const hasStatus = card.querySelector('.jira-personal-status');
-        // Статус отображаем только на самой карточке
+        // Статус отображаем только на ВЕРХНЕМ КОНТЕЙНЕРЕ карточки (один раз!)
         if (this.statusCache[issueKey] && !hasStatus) {
           const statusDot = document.createElement('div');
           statusDot.className = `jira-personal-status status-${this.statusCache[issueKey]}`;
           statusDot.title = `Статус: ${this.statusCache[issueKey] === 'red' ? 'Проблема' : this.statusCache[issueKey] === 'yellow' ? 'В процессе' : 'Готово'}`;
           statusDot.setAttribute('data-issue-key', issueKey);
-          card.appendChild(statusDot);
+          cardContainer.appendChild(statusDot); // Добавляем на верхний контейнер
         }
 
         // Добавляем адрес ТОЛЬКО если его нет
