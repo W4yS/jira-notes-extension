@@ -601,13 +601,13 @@ class JiraNotesExtension {
     }
   }
 
-  // Извлекаем и сохраняем адрес из открытой задачи - ОПТИМИЗИРОВАННАЯ ВЕРСИЯ
+  // Извлекаем и сохраняем адрес из открытой задачи - ОПТИМИЗИРОВАННАЯ ВЕРСИЯ v2
   async extractAndSaveAddress() {
     console.log('🔍 Starting address extraction...');
     
-    // Ищем поле "Офис или Адрес" с оптимизацией
-    const maxAttempts = 5; // Уменьшили с 10 до 5
-    const attemptDelay = 300; // Уменьшили с 500 до 300мс
+    // Уменьшаем количество попыток и задержку
+    const maxAttempts = 3; // Уменьшили с 5 до 3
+    const attemptDelay = 200; // Уменьшили с 300 до 200мс
     
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const addressField = document.querySelector('[data-testid="issue.views.field.single-line-text.read-view.customfield_11120"]');
@@ -616,7 +616,7 @@ class JiraNotesExtension {
         const address = addressField.textContent.trim();
         
         if (address && this.currentIssueKey) {
-          console.log(`✅ Found address on attempt ${attempt}: "${address}"`);
+          console.log(`✅ Found address on attempt ${attempt}: "${address.substring(0, 50)}..."`);
 
           // Проверяем, изменился ли адрес (избегаем лишних записей)
           const cachedAddress = this.addressCache[this.currentIssueKey];
@@ -625,10 +625,10 @@ class JiraNotesExtension {
             await chrome.storage.local.set({
               [`address_${this.currentIssueKey}`]: address
             });
-            console.log(`💾 Address saved: ${this.currentIssueKey} -> ${address}`);
+            console.log(`💾 Address saved: ${this.currentIssueKey} -> ${address.substring(0, 30)}...`);
             
             // Обновляем карточки только если адрес изменился
-            setTimeout(() => this.updateAllCards(), 500);
+            setTimeout(() => this.updateAllCards(), 300); // Уменьшили с 500 до 300
           } else {
             console.log(`✓ Address unchanged, skip update`);
           }
@@ -651,12 +651,29 @@ class JiraNotesExtension {
     console.log('❌ Address field not found or empty');
   }
 
-  // Извлекаем кодировку офиса из двух полей Jira
+  // Нормализация текста для сравнения адресов
+  normalizeAddress(text) {
+    if (!text) return '';
+    return text
+      .toLowerCase()
+      .replace(/[.,\s]+/g, '') // Убираем пробелы, точки, запятые
+      .replace(/улица|ул\.|ул/gi, '')
+      .replace(/проспект|пр-кт|пр\.|пр/gi, '')
+      .replace(/дом|д\.|д/gi, '')
+      .replace(/корпус|к\.|к/gi, '')
+      .replace(/строение|стр\.|стр/gi, '')
+      .replace(/бизнес-центр|бц/gi, '')
+      .replace(/санкт-петербург|спб|с-пб/gi, '')
+      .replace(/[а-я]/g, '') // Убираем буквы, оставляем только цифры
+      .replace(/-/g, ''); // Убираем дефисы
+  }
+
+  // Извлекаем кодировку офиса из двух полей Jira - ОПТИМИЗИРОВАННАЯ ВЕРСИЯ v2
   async extractAndSaveOfficeCode() {
     console.log('🏢 Starting office code extraction...');
     
-    const maxAttempts = 5;
-    const attemptDelay = 300;
+    const maxAttempts = 3; // Уменьшили с 5 до 3
+    const attemptDelay = 200; // Уменьшили с 300 до 200мс
     
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       // Поле 1: "Офис или Адрес" (customfield_11120)
@@ -668,15 +685,13 @@ class JiraNotesExtension {
         const text1 = officeField1 ? officeField1.textContent.trim() : '';
         const text2 = officeField2 ? officeField2.textContent.trim() : '';
         
-        console.log(`🔎 Attempt ${attempt}: Field1="${text1}", Field2="${text2}"`);
+        console.log(`🔎 Attempt ${attempt}: Field1="${text1.substring(0, 50)}...", Field2="${text2.substring(0, 50)}..."`);
         
-        // Сначала ищем точное совпадение с кодом в обоих полях
+        // ШАГ 1: Сначала ищем точное совпадение с кодом в обоих полях (БЫСТРО)
         let foundCode = null;
         
-        // Проверяем поле 1
         if (text1) {
-          for (let i = 0; i < this.addressMapping.codes.length; i++) {
-            const code = this.addressMapping.codes[i];
+          for (const code of this.addressMapping.codes) {
             if (text1.includes(code)) {
               foundCode = code;
               console.log(`✅ Found exact code match in Field1: "${code}"`);
@@ -685,10 +700,8 @@ class JiraNotesExtension {
           }
         }
         
-        // Если не нашли в поле 1, проверяем поле 2
         if (!foundCode && text2) {
-          for (let i = 0; i < this.addressMapping.codes.length; i++) {
-            const code = this.addressMapping.codes[i];
+          for (const code of this.addressMapping.codes) {
             if (text2.includes(code)) {
               foundCode = code;
               console.log(`✅ Found exact code match in Field2: "${code}"`);
@@ -697,36 +710,32 @@ class JiraNotesExtension {
           }
         }
         
-        // Если код не найден - ищем по адресу
+        // ШАГ 2: Если код не найден - ищем по адресу с нормализацией (МЕДЛЕННЕЕ)
         if (!foundCode) {
           console.log('🔍 No direct code match, searching by address...');
           
-          // Ищем в поле 1
-          if (text1) {
-            for (let i = 0; i < this.addressMapping.addresses.length; i++) {
-              const address = this.addressMapping.addresses[i];
-              if (text1.includes(address)) {
-                foundCode = this.addressMapping.codes[i];
-                console.log(`✅ Found address match in Field1: "${address}" -> "${foundCode}"`);
-                break;
-              }
-            }
-          }
+          // Нормализуем тексты один раз
+          const normalized1 = this.normalizeAddress(text1);
+          const normalized2 = this.normalizeAddress(text2);
           
-          // Если не нашли в поле 1, ищем в поле 2
-          if (!foundCode && text2) {
-            for (let i = 0; i < this.addressMapping.addresses.length; i++) {
-              const address = this.addressMapping.addresses[i];
-              if (text2.includes(address)) {
-                foundCode = this.addressMapping.codes[i];
-                console.log(`✅ Found address match in Field2: "${address}" -> "${foundCode}"`);
-                break;
-              }
+          console.log(`🔤 Normalized: Field1="${normalized1}", Field2="${normalized2}"`);
+          
+          // Ищем совпадение по нормализованным адресам
+          for (let i = 0; i < this.addressMapping.addresses.length; i++) {
+            const address = this.addressMapping.addresses[i];
+            const normalizedAddress = this.normalizeAddress(address);
+            
+            // Проверяем вхождение (частичное совпадение)
+            if ((normalized1 && normalized1.includes(normalizedAddress)) || 
+                (normalized2 && normalized2.includes(normalizedAddress))) {
+              foundCode = this.addressMapping.codes[i];
+              console.log(`✅ Found normalized address match: "${address}" -> "${foundCode}"`);
+              break;
             }
           }
         }
         
-        // Если ничего не нашли - ставим "ХЗ"
+        // ШАГ 3: Если ничего не нашли - ставим "ХЗ"
         if (!foundCode) {
           foundCode = 'ХЗ';
           console.log('❌ No matches found, using "ХЗ"');
@@ -743,7 +752,7 @@ class JiraNotesExtension {
             console.log(`💾 Office code saved: ${this.currentIssueKey} -> ${foundCode}`);
             
             // Обновляем карточки
-            setTimeout(() => this.updateAllCards(), 500);
+            setTimeout(() => this.updateAllCards(), 300); // Уменьшили задержку с 500 до 300
           } else {
             console.log(`✓ Office code unchanged, skip update`);
           }
