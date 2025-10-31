@@ -10,9 +10,38 @@ class JiraNotesExtension {
     // Кеш для оптимизации производительности
     this.statusCache = {}; // { issueKey: status }
     this.addressCache = {}; // { issueKey: address }
+    this.codeCache = {}; // { issueKey: code } - кодировки офисов (ХЗ, Гоголь, и т.д.)
     this.processedCards = new Set(); // Карточки, которые уже обработаны
     this.lastUpdateTime = 0; // Время последнего обновления
     this.statusesMetadata = {}; // Кеш метаданных статусов { statusId: { name, color, emoji } }
+    
+    // Таблица соответствий адресов и кодов (загружается из code.json)
+    this.addressMapping = {
+      codes: [],
+      addresses: []
+    };
+    
+    // Загружаем маппинг при инициализации
+    this.loadAddressMapping();
+  }
+  
+  // Загрузка таблицы соответствий из code.json
+  async loadAddressMapping() {
+    try {
+      const response = await fetch(chrome.runtime.getURL('code.json'));
+      const data = await response.json();
+      
+      this.addressMapping = {
+        codes: data.code || [],
+        addresses: data.addresses || []
+      };
+      
+      console.log('📋 Address mapping loaded:', this.addressMapping.codes.length, 'codes');
+    } catch (error) {
+      console.error('❌ Failed to load address mapping:', error);
+      // Fallback на пустые массивы
+      this.addressMapping = { codes: [], addresses: [] };
+    }
   }
 
   // Получение метаданных статуса (с кешированием)
@@ -91,13 +120,17 @@ class JiraNotesExtension {
   cleanupOldElements() {
     console.log('🧹 Cleaning up old elements...');
     
-    // Удаляем все старые статусы и адреса
+    // Удаляем все старые статусы, адреса и коды
     document.querySelectorAll('.jira-personal-status').forEach(el => {
       console.log('Removing old status:', el);
       el.remove();
     });
     document.querySelectorAll('.jira-personal-address-inline').forEach(el => {
       console.log('Removing old address:', el);
+      el.remove();
+    });
+    document.querySelectorAll('.jira-personal-code-inline').forEach(el => {
+      console.log('Removing old code:', el);
       el.remove();
     });
     
@@ -555,8 +588,9 @@ class JiraNotesExtension {
         this.displayCurrentStatus(status);
       }
       
-      // Автоматически извлекаем и сохраняем адрес при открытии задачи
+      // Автоматически извлекаем и сохраняем адрес и код офиса при открытии задачи
       await this.extractAndSaveAddress();
+      await this.extractAndSaveOfficeCode();
       
       // Обновляем карточки на доске
       setTimeout(() => {
@@ -615,6 +649,116 @@ class JiraNotesExtension {
     }
     
     console.log('❌ Address field not found or empty');
+  }
+
+  // Извлекаем кодировку офиса из двух полей Jira
+  async extractAndSaveOfficeCode() {
+    console.log('🏢 Starting office code extraction...');
+    
+    const maxAttempts = 5;
+    const attemptDelay = 300;
+    
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      // Поле 1: "Офис или Адрес" (customfield_11120)
+      const officeField1 = document.querySelector('[data-testid="issue.views.field.single-line-text.read-view.customfield_11120"]');
+      // Поле 2: "Адрес офиса" (customfield_10994)
+      const officeField2 = document.querySelector('[data-testid="issue.views.field.single-line-text.read-view.customfield_10994"]');
+      
+      if (officeField1 || officeField2) {
+        const text1 = officeField1 ? officeField1.textContent.trim() : '';
+        const text2 = officeField2 ? officeField2.textContent.trim() : '';
+        
+        console.log(`🔎 Attempt ${attempt}: Field1="${text1}", Field2="${text2}"`);
+        
+        // Сначала ищем точное совпадение с кодом в обоих полях
+        let foundCode = null;
+        
+        // Проверяем поле 1
+        if (text1) {
+          for (let i = 0; i < this.addressMapping.codes.length; i++) {
+            const code = this.addressMapping.codes[i];
+            if (text1.includes(code)) {
+              foundCode = code;
+              console.log(`✅ Found exact code match in Field1: "${code}"`);
+              break;
+            }
+          }
+        }
+        
+        // Если не нашли в поле 1, проверяем поле 2
+        if (!foundCode && text2) {
+          for (let i = 0; i < this.addressMapping.codes.length; i++) {
+            const code = this.addressMapping.codes[i];
+            if (text2.includes(code)) {
+              foundCode = code;
+              console.log(`✅ Found exact code match in Field2: "${code}"`);
+              break;
+            }
+          }
+        }
+        
+        // Если код не найден - ищем по адресу
+        if (!foundCode) {
+          console.log('🔍 No direct code match, searching by address...');
+          
+          // Ищем в поле 1
+          if (text1) {
+            for (let i = 0; i < this.addressMapping.addresses.length; i++) {
+              const address = this.addressMapping.addresses[i];
+              if (text1.includes(address)) {
+                foundCode = this.addressMapping.codes[i];
+                console.log(`✅ Found address match in Field1: "${address}" -> "${foundCode}"`);
+                break;
+              }
+            }
+          }
+          
+          // Если не нашли в поле 1, ищем в поле 2
+          if (!foundCode && text2) {
+            for (let i = 0; i < this.addressMapping.addresses.length; i++) {
+              const address = this.addressMapping.addresses[i];
+              if (text2.includes(address)) {
+                foundCode = this.addressMapping.codes[i];
+                console.log(`✅ Found address match in Field2: "${address}" -> "${foundCode}"`);
+                break;
+              }
+            }
+          }
+        }
+        
+        // Если ничего не нашли - ставим "ХЗ"
+        if (!foundCode) {
+          foundCode = 'ХЗ';
+          console.log('❌ No matches found, using "ХЗ"');
+        }
+        
+        // Сохраняем результат
+        if (this.currentIssueKey) {
+          const cachedCode = this.codeCache[this.currentIssueKey];
+          if (cachedCode !== foundCode) {
+            this.codeCache[this.currentIssueKey] = foundCode;
+            await chrome.storage.local.set({
+              [`code_${this.currentIssueKey}`]: foundCode
+            });
+            console.log(`💾 Office code saved: ${this.currentIssueKey} -> ${foundCode}`);
+            
+            // Обновляем карточки
+            setTimeout(() => this.updateAllCards(), 500);
+          } else {
+            console.log(`✓ Office code unchanged, skip update`);
+          }
+        }
+        
+        return;
+      }
+      
+      // Ждем перед следующей попыткой
+      if (attempt < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, attemptDelay));
+      }
+    }
+    
+    console.log('❌ Office fields not found');
   }
 
   // Сохранение заметок
@@ -733,31 +877,37 @@ class JiraNotesExtension {
       // Обновляем кеш только если данные изменились
       const newStatusCache = {};
       const newAddressCache = {};
+      const newCodeCache = {};
       
       for (const key in allData) {
         if (key.startsWith('status_')) {
           newStatusCache[key.replace('status_', '')] = allData[key];
         } else if (key.startsWith('address_')) {
           newAddressCache[key.replace('address_', '')] = allData[key];
+        } else if (key.startsWith('code_')) {
+          newCodeCache[key.replace('code_', '')] = allData[key];
         }
       }
       
       // Проверяем изменился ли кеш
       const statusChanged = JSON.stringify(this.statusCache) !== JSON.stringify(newStatusCache);
       const addressChanged = JSON.stringify(this.addressCache) !== JSON.stringify(newAddressCache);
+      const codeChanged = JSON.stringify(this.codeCache) !== JSON.stringify(newCodeCache);
       
-      if (statusChanged || addressChanged) {
+      if (statusChanged || addressChanged || codeChanged) {
         this.statusCache = newStatusCache;
         this.addressCache = newAddressCache;
+        this.codeCache = newCodeCache;
         
         // Если данные изменились - убираем ВСЕ старые элементы и сбрасываем флаги обработки
         document.querySelectorAll('.jira-personal-status').forEach(el => el.remove());
         document.querySelectorAll('.jira-personal-address-inline').forEach(el => el.remove());
+        document.querySelectorAll('.jira-personal-code-inline').forEach(el => el.remove());
         document.querySelectorAll('[data-jira-processed]').forEach(card => {
           card.removeAttribute('data-jira-processed');
         });
         
-        console.log(`📦 Cache updated: ${Object.keys(this.statusCache).length} statuses, ${Object.keys(this.addressCache).length} addresses`);
+        console.log(`📦 Cache updated: ${Object.keys(this.statusCache).length} statuses, ${Object.keys(this.addressCache).length} addresses, ${Object.keys(this.codeCache).length} codes`);
       } else {
         console.log('✅ Cache unchanged, only processing new cards');
       }
@@ -790,10 +940,11 @@ class JiraNotesExtension {
         // ПРОВЕРКА: есть ли уже элементы на КОНТЕЙНЕРЕ карточки
         const hasStatus = cardContainer.querySelector('.jira-personal-status');
         const hasAddress = link.querySelector('.jira-personal-address-inline');
+        const hasCode = link.querySelector('.jira-personal-code-inline');
         const isProcessed = cardContainer.hasAttribute('data-jira-processed');
         
         // Если карточка УЖЕ обработана И элементы есть - пропускаем
-        if (isProcessed && hasStatus && hasAddress) {
+        if (isProcessed && hasStatus && hasAddress && hasCode) {
           return;
         }
         
@@ -821,8 +972,34 @@ class JiraNotesExtension {
           cardContainer.appendChild(statusDot);
         }
 
-        // Добавляем адрес ТОЛЬКО если его нет
-        if (this.addressCache[issueKey] && !hasAddress) {
+        // Добавляем КОД ОФИСА (приоритетнее адреса)
+        if (this.codeCache[issueKey] && !hasCode) {
+          // Скрываем номер задачи
+          const childDivs = link.querySelectorAll('div');
+          childDivs.forEach(div => {
+            if (div.textContent.includes(issueKey) && 
+                !div.classList.contains('jira-personal-code-inline') &&
+                !div.classList.contains('jira-personal-address-inline')) {
+              div.style.display = 'none';
+            }
+          });
+          
+          // Создаем элемент с кодом офиса
+          const codeSpan = document.createElement('div');
+          codeSpan.className = 'jira-personal-code-inline';
+          codeSpan.textContent = this.codeCache[issueKey];
+          codeSpan.title = `Офис: ${this.codeCache[issueKey]} (${issueKey})`;
+          
+          // Добавляем стиль для "ХЗ"
+          if (this.codeCache[issueKey] === 'ХЗ') {
+            codeSpan.style.color = '#9ca3af';
+            codeSpan.style.fontStyle = 'italic';
+          }
+          
+          link.appendChild(codeSpan);
+        }
+        // Если кода нет, добавляем адрес (как было раньше)
+        else if (this.addressCache[issueKey] && !hasAddress && !hasCode) {
           // Скрываем номер задачи
           const childDivs = link.querySelectorAll('div');
           childDivs.forEach(div => {

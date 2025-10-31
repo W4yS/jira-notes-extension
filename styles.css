@@ -329,6 +329,21 @@
   letter-spacing: 0.3px !important;
 }
 
+/* Код офиса вместо номера задачи (приоритетнее адреса) */
+.jira-personal-code-inline {
+  display: inline-block !important;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+  color: white !important;
+  padding: 4px 10px !important;
+  border-radius: 6px !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  white-space: nowrap !important;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3) !important;
+  letter-spacing: 0.3px !important;
+  text-transform: uppercase !important;
+}
+
 /* Адрес доставки на карточке (запасной вариант) */
 .jira-personal-address {
   position: absolute !important;
