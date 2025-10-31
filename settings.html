@@ -13,28 +13,36 @@
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-      padding: 20px;
+      padding: 40px 20px;
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      min-width: 400px;
+      min-height: 100vh;
       color: #333;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
     }
 
     .container {
       background: white;
       border-radius: 12px;
-      padding: 24px;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+      padding: 32px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+      max-width: 700px;
+      width: 100%;
     }
 
     h1 {
-      font-size: 24px;
+      font-size: 28px;
       margin-bottom: 8px;
       color: #667eea;
+      display: flex;
+      align-items: center;
+      gap: 12px;
     }
 
     .subtitle {
       color: #666;
-      margin-bottom: 24px;
+      margin-bottom: 28px;
       font-size: 14px;
     }
 
@@ -274,12 +282,185 @@
       font-size: 12px;
       color: #666;
     }
+
+    .tabs {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 24px;
+      border-bottom: 2px solid #e0e0e0;
+    }
+
+    .tab {
+      padding: 12px 20px;
+      cursor: pointer;
+      font-weight: 600;
+      border-bottom: 3px solid transparent;
+      margin-bottom: -2px;
+      transition: all 0.2s;
+      color: #666;
+      user-select: none;
+    }
+
+    .tab:hover {
+      color: #667eea;
+      background: rgba(102, 126, 234, 0.05);
+    }
+
+    .tab.active {
+      color: #667eea !important;
+      border-bottom-color: #667eea !important;
+    }
+
+    .status-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: white;
+      border: 2px solid #e5e7eb;
+      border-radius: 8px;
+      transition: all 0.2s;
+    }
+
+    .status-item:hover {
+      border-color: #667eea;
+      box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
+    }
+
+    .status-item.default {
+      background: #f9fafb;
+    }
+
+    .status-item-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .status-item-emoji {
+      font-size: 20px;
+    }
+
+    .status-item-dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+
+    .status-item-name {
+      font-weight: 600;
+      font-size: 14px;
+    }
+
+    .status-item-badge {
+      font-size: 11px;
+      padding: 2px 8px;
+      background: #e5e7eb;
+      border-radius: 4px;
+      color: #6b7280;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .status-item-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .status-item-actions button {
+      padding: 6px 12px;
+      font-size: 12px;
+      border-radius: 4px;
+      border: 1px solid #e5e7eb;
+      background: white;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .status-item-actions button:hover {
+      background: #f3f4f6;
+      border-color: #d1d5db;
+    }
+
+    .status-item-actions button.delete:hover {
+      background: #fee;
+      border-color: #fcc;
+      color: #dc2626;
+    }
+
+    .color-preset:hover {
+      transform: scale(1.15);
+      box-shadow: 0 4px 8px rgba(0,0,0,0.3) !important;
+    }
+
+    /* Адаптивность */
+    @media (max-width: 768px) {
+      body {
+        padding: 20px 12px;
+      }
+
+      .container {
+        padding: 24px 20px;
+        max-width: 100%;
+      }
+
+      h1 {
+        font-size: 24px;
+      }
+
+      .tabs {
+        gap: 8px !important;
+      }
+
+      .tab {
+        padding: 10px 14px !important;
+        font-size: 14px;
+      }
+
+      .mode-selector {
+        flex-direction: column;
+      }
+
+      .jira-notes-status-grid {
+        grid-template-columns: 1fr !important;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .container {
+        padding: 20px 16px;
+      }
+
+      h1 {
+        font-size: 22px;
+      }
+
+      .color-selector {
+        grid-template-columns: repeat(4, 1fr) !important;
+      }
+    }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>🔄 Настройки синхронизации</h1>
-    <p class="subtitle">Выберите режим работы расширения</p>
+    <h1>⚙️ Настройки расширения</h1>
+    <p class="subtitle">Настройте режим работы и кастомные статусы</p>
+
+    <!-- Табы -->
+    <div class="tabs">
+      <div class="tab active" data-tab="sync">
+        🔄 Синхронизация
+      </div>
+      <div class="tab" data-tab="statuses">
+        🎨 Статусы
+      </div>
+    </div>
+
+    <!-- Вкладка: Синхронизация -->
+    <div class="tab-content" id="syncTab">
+    <h2 style="font-size: 18px; margin-bottom: 16px; color: #667eea;">Режим работы</h2>
 
     <!-- Выбор режима -->
     <div class="mode-selector">
@@ -365,8 +546,81 @@
     <div class="button-group" id="personalButtons" style="display: none;">
       <button class="btn-primary" id="savePersonalBtn">💾 Сохранить</button>
     </div>
+    </div>
+
+    <!-- Вкладка: Кастомные статусы -->
+    <div class="tab-content" id="statusesTab" style="display: none;">
+      <h2 style="font-size: 18px; margin-bottom: 16px; color: #667eea;">Управление статусами</h2>
+      
+      <div class="info-box" style="background: #fff3cd; border-left-color: #ffc107; color: #856404; margin-bottom: 20px;">
+        💡 <strong>Подсказка:</strong> Создавайте свои статусы с любыми эмодзи и цветами. По умолчанию доступны: 🔴 Проблема, 🟡 В процессе, 🟣 В фокусе, 🟢 Готово.
+      </div>
+
+      <!-- Список существующих статусов -->
+      <div style="margin-bottom: 24px;">
+        <label style="margin-bottom: 12px; display: block; font-size: 14px; font-weight: 600;">Текущие статусы:</label>
+        <div id="statusesList" style="display: flex; flex-direction: column; gap: 10px;">
+          <!-- Заполняется динамически -->
+        </div>
+      </div>
+
+      <!-- Форма добавления нового статуса -->
+      <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; border: 2px dashed #dee2e6;">
+        <h3 style="font-size: 16px; margin-bottom: 16px; color: #495057;">➕ Добавить новый статус</h3>
+        
+        <div class="form-group">
+          <label>Название статуса</label>
+          <input type="text" id="newStatusName" placeholder="например: Ожидает ответа" maxlength="30" />
+        </div>
+
+        <div class="form-group">
+          <label>Эмодзи (необязательно)</label>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <input type="text" id="newStatusEmoji" placeholder="🔵" maxlength="2" style="width: 80px; font-size: 24px; text-align: center;" />
+            <span style="font-size: 12px; color: #666;">Вставьте любой эмодзи</span>
+          </div>
+          <div style="margin-top: 8px; font-size: 12px; color: #666;">
+            Популярные: 🔵 🟠 🟤 ⚫ ⚪ 🔷 🔶 ⭐ 🔥 ⚡ 💎 🎯 ⏰ ✅ ❌ 🚀 🎉 💡
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Цвет статуса</label>
+          <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+            <input type="color" id="newStatusColor" value="#3b82f6" style="width: 60px; height: 40px; border: 2px solid #e0e0e0; border-radius: 6px; cursor: pointer;" />
+            <input type="text" id="newStatusColorHex" value="#3b82f6" placeholder="#3b82f6" maxlength="7" style="width: 100px; font-family: monospace;" />
+            <span style="font-size: 12px; color: #666;">или введите HEX код</span>
+          </div>
+          <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
+            <button class="color-preset" data-color="#ef4444" style="width: 32px; height: 32px; border-radius: 50%; background: #ef4444; border: 2px solid #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.2); cursor: pointer;"></button>
+            <button class="color-preset" data-color="#f59e0b" style="width: 32px; height: 32px; border-radius: 50%; background: #f59e0b; border: 2px solid #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.2); cursor: pointer;"></button>
+            <button class="color-preset" data-color="#eab308" style="width: 32px; height: 32px; border-radius: 50%; background: #eab308; border: 2px solid #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.2); cursor: pointer;"></button>
+            <button class="color-preset" data-color="#22c55e" style="width: 32px; height: 32px; border-radius: 50%; background: #22c55e; border: 2px solid #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.2); cursor: pointer;"></button>
+            <button class="color-preset" data-color="#3b82f6" style="width: 32px; height: 32px; border-radius: 50%; background: #3b82f6; border: 2px solid #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.2); cursor: pointer;"></button>
+            <button class="color-preset" data-color="#a855f7" style="width: 32px; height: 32px; border-radius: 50%; background: #a855f7; border: 2px solid #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.2); cursor: pointer;"></button>
+            <button class="color-preset" data-color="#ec4899" style="width: 32px; height: 32px; border-radius: 50%; background: #ec4899; border: 2px solid #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.2); cursor: pointer;"></button>
+            <button class="color-preset" data-color="#64748b" style="width: 32px; height: 32px; border-radius: 50%; background: #64748b; border: 2px solid #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.2); cursor: pointer;"></button>
+          </div>
+        </div>
+
+        <div style="margin-top: 16px; padding: 12px; background: white; border-radius: 6px; border: 1px solid #e0e0e0;">
+          <label style="font-size: 12px; color: #666; margin-bottom: 8px; display: block;">Предпросмотр:</label>
+          <div id="statusPreview" style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 6px; background: #f3f4f6; border: 2px solid #e5e7eb;">
+            <span id="previewEmoji" style="font-size: 16px;">🔵</span>
+            <span id="previewDot" style="width: 12px; height: 12px; border-radius: 50%; background: #3b82f6;"></span>
+            <span id="previewName" style="font-weight: 600; font-size: 14px;">Новый статус</span>
+          </div>
+        </div>
+
+        <div class="button-group" style="margin-top: 16px;">
+          <button class="btn-primary" id="addStatusBtn" style="flex: 0 0 auto; padding: 10px 24px;">➕ Добавить статус</button>
+          <button class="btn-secondary" id="resetDefaultsBtn" style="flex: 0 0 auto; padding: 10px 24px;">🔄 Сбросить к стандартным</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script src="settings.js" type="module"></script>
 </body>
 </html>
+

@@ -17,6 +17,33 @@ class JiraNotesExtension {
     this.addressCache = {}; // { issueKey: address }
     this.processedCards = new Set(); // Карточки, которые уже обработаны
     this.lastUpdateTime = 0; // Время последнего обновления
+    this.statusesMetadata = {}; // Кеш метаданных статусов { statusId: { name, color, emoji } }
+  }
+
+  // Получение метаданных статуса (с кешированием)
+  async getStatusData(statusId) {
+    if (!statusId) return { name: 'Без статуса', color: '#9ca3af', emoji: '' };
+    
+    // Если в кеше есть - возвращаем
+    if (this.statusesMetadata[statusId]) {
+      return this.statusesMetadata[statusId];
+    }
+    
+    // Загружаем из storage
+    const result = await chrome.storage.local.get('customStatuses');
+    const statuses = result.customStatuses || [
+      { id: 'red', name: 'Проблема', emoji: '🔴', color: '#EF4444' },
+      { id: 'yellow', name: 'В процессе', emoji: '🟡', color: '#EAB308' },
+      { id: 'purple', name: 'В фокусе', emoji: '🟣', color: '#A855F7' },
+      { id: 'green', name: 'Готово', emoji: '🟢', color: '#22C55E' }
+    ];
+    
+    // Заполняем кеш
+    statuses.forEach(s => {
+      this.statusesMetadata[s.id] = { name: s.name, color: s.color, emoji: s.emoji };
+    });
+    
+    return this.statusesMetadata[statusId] || { name: 'Неизвестно', color: '#9ca3af', emoji: '' };
   }
 
   // Инициализация расширения
@@ -40,9 +67,27 @@ class JiraNotesExtension {
     this.cleanupOldElements();
     
     await this.initSync(); // Инициализируем синхронизацию
+    await this.loadStatusesMetadata(); // Загружаем метаданные статусов
     this.detectIssueKey();
     this.injectNotesPanel();
     this.setupObserver();
+  }
+
+  // Загрузка метаданных статусов в кеш
+  async loadStatusesMetadata() {
+    const result = await chrome.storage.local.get('customStatuses');
+    const statuses = result.customStatuses || [
+      { id: 'red', name: 'Проблема', emoji: '🔴', color: '#EF4444' },
+      { id: 'yellow', name: 'В процессе', emoji: '🟡', color: '#EAB308' },
+      { id: 'purple', name: 'В фокусе', emoji: '🟣', color: '#A855F7' },
+      { id: 'green', name: 'Готово', emoji: '🟢', color: '#22C55E' }
+    ];
+    
+    statuses.forEach(s => {
+      this.statusesMetadata[s.id] = { name: s.name, color: s.color, emoji: s.emoji };
+    });
+    
+    console.log('📊 Loaded status metadata:', Object.keys(this.statusesMetadata).length, 'statuses');
   }
 
   // Очистка старых элементов расширения (при перезагрузке)
@@ -269,8 +314,8 @@ class JiraNotesExtension {
     
     console.log('🎨 Creating panel for', this.currentIssueKey);
     
-    // Создаем панель
-    const panel = this.createNotesPanel();
+    // Создаем панель (теперь async)
+    const panel = await this.createNotesPanel();
     
     // Вставляем в body
     document.body.appendChild(panel);
@@ -296,7 +341,16 @@ class JiraNotesExtension {
   }
 
   // Создаем HTML панели с заметками
-  createNotesPanel() {
+  async createNotesPanel() {
+    // Загружаем кастомные статусы
+    const result = await chrome.storage.local.get('customStatuses');
+    const statuses = result.customStatuses || [
+      { id: 'red', name: 'Проблема', emoji: '🔴', color: '#EF4444', isDefault: true },
+      { id: 'yellow', name: 'В процессе', emoji: '🟡', color: '#EAB308', isDefault: true },
+      { id: 'purple', name: 'В фокусе', emoji: '🟣', color: '#A855F7', isDefault: true },
+      { id: 'green', name: 'Готово', emoji: '🟢', color: '#22C55E', isDefault: true }
+    ];
+
     const panel = document.createElement('div');
     panel.className = 'jira-notes-panel jira-notes-floating';
     panel.setAttribute('data-jira-notes-panel', 'true');
@@ -309,10 +363,18 @@ class JiraNotesExtension {
       pointer-events: auto !important;
     `;
     
+    // Генерируем кнопки статусов динамически
+    const statusButtons = statuses.map(status => `
+      <button class="jira-status-btn" data-status="${status.id}" title="${status.name}">
+        <span class="status-dot" style="background: ${status.color};"></span>
+        ${status.emoji} ${status.name}
+      </button>
+    `).join('');
+    
     panel.innerHTML = `
       <div class="jira-notes-header" id="jira-notes-drag-handle">
         <div class="jira-notes-header-content">
-          <span class="jira-notes-icon">�</span>
+          <span class="jira-notes-icon">📝</span>
           <div class="jira-notes-header-text">
             <div class="jira-notes-header-title">Личные заметки</div>
             <h3 class="jira-notes-title">${this.currentIssueKey}</h3>
@@ -324,18 +386,7 @@ class JiraNotesExtension {
         <div class="jira-notes-markers">
           <div class="jira-notes-markers-label">🎯 Статус задачи:</div>
           <div class="jira-notes-markers-container">
-            <button class="jira-status-btn" data-status="red" title="Проблема / Срочно">
-              <span class="status-dot status-red"></span>
-              🔴 Проблема
-            </button>
-            <button class="jira-status-btn" data-status="yellow" title="В процессе / Ожидание">
-              <span class="status-dot status-yellow"></span>
-              🟡 В процессе
-            </button>
-            <button class="jira-status-btn" data-status="green" title="Готово / ОК">
-              <span class="status-dot status-green"></span>
-              🟢 Готово
-            </button>
+            ${statusButtons}
             <button class="jira-status-btn clear-status" data-status="" title="Очистить статус">
               <span class="status-dot status-gray"></span>
               Очистить
@@ -372,19 +423,25 @@ class JiraNotesExtension {
     return panel;
   }
 
-  // Защита панели от удаления
+  // Защита панели от удаления - ОПТИМИЗИРОВАННАЯ ВЕРСИЯ
   protectPanel(panel) {
     // Устанавливаем максимальный z-index
     panel.style.zIndex = '999999';
     
-    let removalCount = 0;
-    let hideCount = 0;
+    let checkCount = 0;
+    const MAX_CHECKS = 120; // 60 секунд (каждые 500мс)
     
-    // Периодически проверяем, что панель на месте
+    // Периодически проверяем, что панель на месте (первую минуту активно, потом реже)
     const protectionInterval = setInterval(() => {
+      checkCount++;
+      
+      // После 60 секунд проверяем реже (каждые 5 секунд)
+      if (checkCount > MAX_CHECKS && checkCount % 10 !== 0) {
+        return;
+      }
+      
       if (!document.body.contains(panel)) {
-        removalCount++;
-        console.log(`⚠️ [${removalCount}] Panel was REMOVED from DOM, re-adding...`);
+        console.log(`⚠️ Panel was removed from DOM, re-adding...`);
         document.body.appendChild(panel);
         panel.style.zIndex = '999999';
         panel.style.display = 'block';
@@ -394,33 +451,31 @@ class JiraNotesExtension {
       if (this.currentIssueKey) {
         const computedStyle = window.getComputedStyle(panel);
         if (computedStyle.display === 'none' || computedStyle.visibility === 'hidden' || computedStyle.opacity === '0') {
-          hideCount++;
-          console.log(`⚠️ [${hideCount}] Panel is HIDDEN (display: ${computedStyle.display}, visibility: ${computedStyle.visibility}, opacity: ${computedStyle.opacity})`);
           panel.style.display = 'block';
           panel.style.visibility = 'visible';
           panel.style.opacity = '1';
         }
       }
-    }, 500); // Проверяем каждые 500мс
+    }, 500);
     
-    // Наблюдаем за изменениями атрибутов панели
+    // Наблюдаем за изменениями атрибутов панели (только style)
     const observer = new MutationObserver((mutations) => {
-      mutations.forEach((mutation) => {
+      for (const mutation of mutations) {
         if (mutation.type === 'attributes' && mutation.attributeName === 'style') {
           const currentDisplay = panel.style.display;
           if (currentDisplay === 'none' || currentDisplay === '') {
-            console.log('🔴 MutationObserver caught style change to hide panel!');
             panel.style.display = 'block';
             panel.style.visibility = 'visible';
             panel.style.opacity = '1';
           }
+          break; // Обрабатываем только первое изменение
         }
-      });
+      }
     });
     
     observer.observe(panel, {
       attributes: true,
-      attributeFilter: ['style', 'class']
+      attributeFilter: ['style']
     });
     
     // Дополнительная защита - перехватываем попытки изменить display
@@ -434,41 +489,46 @@ class JiraNotesExtension {
     };
   }
 
-  // Привязываем обработчики событий
+  // Привязываем обработчики событий - ОПТИМИЗИРОВАННАЯ ВЕРСИЯ
   attachEventListeners(panel) {
     const textarea = panel.querySelector('.jira-notes-textarea');
     const closeButton = panel.querySelector('.jira-notes-close');
     const statusButtons = panel.querySelectorAll('.jira-status-btn');
 
-    // Автосохранение при вводе (с задержкой)
+    // Автосохранение при вводе с debounce
     let saveTimeout;
-    textarea.addEventListener('input', () => {
+    const debouncedSave = () => {
       clearTimeout(saveTimeout);
-      saveTimeout = setTimeout(() => this.saveNotes(), 1000);
-    });
+      saveTimeout = setTimeout(() => this.saveNotes(), 800); // Уменьшили с 1000 до 800мс
+    };
+    
+    textarea.addEventListener('input', debouncedSave, { passive: true });
 
     // Закрытие окна (не удаляем, просто скрываем)
     closeButton.addEventListener('click', (e) => {
       e.stopPropagation();
       panel.style.display = 'none';
       console.log('Panel hidden by user');
-    });
+    }, { passive: false });
 
-    // Обработчики статусов
+    // Обработчики статусов с делегированием
     statusButtons.forEach(button => {
-      button.addEventListener('click', () => {
+      button.addEventListener('click', async () => {
         const status = button.getAttribute('data-status');
-        this.setStatus(status);
+        await this.setStatus(status);
         
-        // Также пробуем извлечь адрес при установке статуса
-        this.extractAndSaveAddress();
-      });
+        // Извлекаем адрес при установке статуса (если еще не сохранен)
+        if (!this.addressCache[this.currentIssueKey]) {
+          this.extractAndSaveAddress();
+        }
+      }, { passive: true });
     });
 
     // Горячие клавиши
     textarea.addEventListener('keydown', (e) => {
       if (e.ctrlKey && e.key === 's') {
         e.preventDefault();
+        clearTimeout(saveTimeout); // Отменяем отложенное сохранение
         this.saveNotes(true);
       }
     });
@@ -538,11 +598,22 @@ class JiraNotesExtension {
     };
 
     try {
+      // Проверяем, что контекст расширения еще валиден
+      if (!chrome.runtime?.id) {
+        console.warn('⚠️ Extension context invalidated, skipping position save');
+        return;
+      }
+      
       await chrome.storage.local.set({
         'panel_position': position
       });
     } catch (error) {
-      console.error('Error saving position:', error);
+      // Игнорируем ошибку Extension context invalidated
+      if (error.message?.includes('Extension context invalidated')) {
+        console.warn('⚠️ Extension context invalidated during save, ignoring');
+      } else {
+        console.error('Error saving position:', error);
+      }
     }
   }
 
@@ -618,49 +689,54 @@ class JiraNotesExtension {
     }
   }
 
-  // Извлекаем и сохраняем адрес из открытой задачи
+  // Извлекаем и сохраняем адрес из открытой задачи - ОПТИМИЗИРОВАННАЯ ВЕРСИЯ
   async extractAndSaveAddress() {
     console.log('🔍 Starting address extraction...');
     
-    // Пытаемся найти поле адреса несколько раз
-    let attempts = 0;
-    const maxAttempts = 10;
+    // Ищем поле "Офис или Адрес" с оптимизацией
+    const maxAttempts = 5; // Уменьшили с 10 до 5
+    const attemptDelay = 300; // Уменьшили с 500 до 300мс
     
-    while (attempts < maxAttempts) {
-      attempts++;
-      
-      // Ищем поле "Офис или Адрес" в открытой задаче
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const addressField = document.querySelector('[data-testid="issue.views.field.single-line-text.read-view.customfield_11120"]');
       
       if (addressField) {
         const address = addressField.textContent.trim();
         
-        if (address) {
-          console.log(`✅ Found address on attempt ${attempts}: "${address}"`);
+        if (address && this.currentIssueKey) {
+          console.log(`✅ Found address on attempt ${attempt}: "${address}"`);
 
-          // Сохраняем адрес для этой задачи
-          if (this.currentIssueKey) {
+          // Проверяем, изменился ли адрес (избегаем лишних записей)
+          const cachedAddress = this.addressCache[this.currentIssueKey];
+          if (cachedAddress !== address) {
+            this.addressCache[this.currentIssueKey] = address;
             await chrome.storage.local.set({
               [`address_${this.currentIssueKey}`]: address
             });
             console.log(`💾 Address saved: ${this.currentIssueKey} -> ${address}`);
             
-            // Обновляем карточки
+            // Обновляем карточки только если адрес изменился
             setTimeout(() => this.updateAllCards(), 500);
+          } else {
+            console.log(`✓ Address unchanged, skip update`);
           }
-          return; // Успешно нашли и сохранили
-        } else {
-          console.log(`⚠️ Attempt ${attempts}: Field found but empty`);
+          return;
         }
-      } else {
-        console.log(`⚠️ Attempt ${attempts}: Address field not found yet`);
+      }
+      
+      // Прерываемся раньше если адрес найден пустым
+      if (addressField && !addressField.textContent.trim()) {
+        console.log(`⚠️ Address field found but empty on attempt ${attempt}`);
+        break;
       }
       
       // Ждем перед следующей попыткой
-      await new Promise(resolve => setTimeout(resolve, 500));
+      if (attempt < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, attemptDelay));
+      }
     }
     
-    console.log('❌ Address field not found after all attempts');
+    console.log('❌ Address field not found or empty');
   }
 
   // Сохранение заметок
@@ -748,11 +824,17 @@ class JiraNotesExtension {
     });
   }
 
-  // Обновляем ВСЕ карточки на доске (ОПТИМИЗИРОВАННАЯ ВЕРСИЯ - БЕЗ МЕРЦАНИЯ)
+  // Обновляем ВСЕ карточки на доске (ОПТИМИЗИРОВАННАЯ ВЕРСИЯ v2)
   async updateAllCards() {
-    // Дебаунсинг - не обновляем чаще чем раз в 2 секунды
+    // Проверяем, что контекст расширения еще валиден
+    if (!chrome.runtime?.id) {
+      console.warn('⚠️ Extension context invalidated, skipping card update');
+      return;
+    }
+    
+    // Дебаунсинг - не обновляем чаще чем раз в 1.5 секунды (было 2)
     const now = Date.now();
-    if (now - this.lastUpdateTime < 2000) {
+    if (now - this.lastUpdateTime < 1500) {
       console.log('⏭️ Skipping update - debouncing (too soon)');
       return;
     }
@@ -771,27 +853,24 @@ class JiraNotesExtension {
       const allData = await chrome.storage.local.get(null);
       
       // Обновляем кеш только если данные изменились
-      let cacheUpdated = false;
       const newStatusCache = {};
       const newAddressCache = {};
       
-      Object.keys(allData).forEach(key => {
+      for (const key in allData) {
         if (key.startsWith('status_')) {
-          const issueKey = key.replace('status_', '');
-          newStatusCache[issueKey] = allData[key];
+          newStatusCache[key.replace('status_', '')] = allData[key];
+        } else if (key.startsWith('address_')) {
+          newAddressCache[key.replace('address_', '')] = allData[key];
         }
-        if (key.startsWith('address_')) {
-          const issueKey = key.replace('address_', '');
-          newAddressCache[issueKey] = allData[key];
-        }
-      });
+      }
       
       // Проверяем изменился ли кеш
-      if (JSON.stringify(this.statusCache) !== JSON.stringify(newStatusCache) ||
-          JSON.stringify(this.addressCache) !== JSON.stringify(newAddressCache)) {
+      const statusChanged = JSON.stringify(this.statusCache) !== JSON.stringify(newStatusCache);
+      const addressChanged = JSON.stringify(this.addressCache) !== JSON.stringify(newAddressCache);
+      
+      if (statusChanged || addressChanged) {
         this.statusCache = newStatusCache;
         this.addressCache = newAddressCache;
-        cacheUpdated = true;
         
         // Если данные изменились - убираем ВСЕ старые элементы и сбрасываем флаги обработки
         document.querySelectorAll('.jira-personal-status').forEach(el => el.remove());
@@ -805,22 +884,26 @@ class JiraNotesExtension {
         console.log('✅ Cache unchanged, only processing new cards');
       }
 
-      // Ищем все карточки - ищем по ВЕРХНЕМУ контейнеру карточки
+      // Ищем все карточки - используем более специфичный селектор
       const allCards = document.querySelectorAll('[data-testid="software-board.board-container.board.card-container.card-with-icc"]');
+      
+      if (allCards.length === 0) {
+        console.log('⚠️ No cards found on board');
+        return;
+      }
       
       console.log(`🎴 Processing ${allCards.length} cards`);
       
       let newCardsCount = 0;
+      const fragment = document.createDocumentFragment(); // Используем fragment для batch DOM операций
       
       allCards.forEach(cardContainer => {
-        // cardContainer - это <div data-testid="software-board.board-container.board.card-container.card-with-icc">
         // Ищем ссылку с номером задачи ВНУТРИ
         const link = cardContainer.querySelector('a[href*="/browse/"], a[href*="selectedIssue="]');
         if (!link) return;
         
         const href = link.href || '';
-        const text = link.textContent.trim();
-        const issueMatch = href.match(/([A-Z]+-\d+)/) || text.match(/^([A-Z]+-\d+)$/);
+        const issueMatch = href.match(/([A-Z]+-\d+)/);
         
         if (!issueMatch) return;
         
@@ -833,7 +916,7 @@ class JiraNotesExtension {
         
         // Если карточка УЖЕ обработана И элементы есть - пропускаем
         if (isProcessed && hasStatus && hasAddress) {
-          return; // Уже полностью обработана!
+          return;
         }
         
         // Если частично обработана - докручиваем недостающее
@@ -845,11 +928,19 @@ class JiraNotesExtension {
 
         // Статус отображаем только на ВЕРХНЕМ КОНТЕЙНЕРЕ карточки (один раз!)
         if (this.statusCache[issueKey] && !hasStatus) {
+          // Получаем метаданные статуса из кеша (синхронно)
+          const statusData = this.statusesMetadata[this.statusCache[issueKey]] || { 
+            name: 'Неизвестно', 
+            color: '#9ca3af', 
+            emoji: '' 
+          };
+          
           const statusDot = document.createElement('div');
-          statusDot.className = `jira-personal-status status-${this.statusCache[issueKey]}`;
-          statusDot.title = `Статус: ${this.statusCache[issueKey] === 'red' ? 'Проблема' : this.statusCache[issueKey] === 'yellow' ? 'В процессе' : 'Готово'}`;
+          statusDot.className = `jira-personal-status`;
+          statusDot.style.background = statusData.color;
+          statusDot.title = `Статус: ${statusData.name}`;
           statusDot.setAttribute('data-issue-key', issueKey);
-          cardContainer.appendChild(statusDot); // Добавляем на верхний контейнер
+          cardContainer.appendChild(statusDot);
         }
 
         // Добавляем адрес ТОЛЬКО если его нет
@@ -867,21 +958,6 @@ class JiraNotesExtension {
           addressSpan.className = 'jira-personal-address-inline';
           addressSpan.textContent = ` ${this.addressCache[issueKey]}`;
           addressSpan.title = `Адрес: ${this.addressCache[issueKey]} (${issueKey})`;
-          addressSpan.style.cssText = `
-            display: inline-block !important;
-            background: linear-gradient(135deg, #0052CC 0%, #0747A6 100%) !important;
-            color: white !important;
-            padding: 4px 10px !important;
-            border-radius: 6px !important;
-            font-size: 13px !important;
-            font-weight: 700 !important;
-            white-space: nowrap !important;
-            box-shadow: 0 2px 8px rgba(0, 82, 204, 0.3) !important;
-            letter-spacing: 0.3px !important;
-            max-width: 200px !important;
-            overflow: hidden !important;
-            text-overflow: ellipsis !important;
-          `;
           
           link.appendChild(addressSpan);
         }
@@ -893,7 +969,12 @@ class JiraNotesExtension {
         console.log(`✅ All ${allCards.length} cards already processed`);
       }
     } catch (error) {
-      console.error('❌ Error updating cards:', error);
+      // Игнорируем ошибку Extension context invalidated
+      if (error.message?.includes('Extension context invalidated')) {
+        console.warn('⚠️ Extension context invalidated during update, ignoring');
+      } else {
+        console.error('❌ Error updating cards:', error);
+      }
     } finally {
       this.isUpdating = false;
     }
@@ -904,9 +985,25 @@ class JiraNotesExtension {
     console.log('Status:', message, type);
   }
 
-  // Наблюдатель за изменениями в DOM (для SPA)
+  // Наблюдатель за изменениями в DOM (для SPA) - ОПТИМИЗИРОВАННАЯ ВЕРСИЯ
   setupObserver() {
     let lastIssueKey = this.currentIssueKey;
+    let rafId = null;
+    let pendingUpdate = false;
+
+    // Батчинг через requestAnimationFrame для предотвращения множественных обновлений
+    const scheduleUpdate = () => {
+      if (pendingUpdate) return;
+      pendingUpdate = true;
+      
+      if (rafId) cancelAnimationFrame(rafId);
+      
+      rafId = requestAnimationFrame(() => {
+        this.updateAllCards();
+        pendingUpdate = false;
+        rafId = null;
+      });
+    };
 
     const observer = new MutationObserver((mutations) => {
       // Проверяем, изменился ли URL или содержимое
@@ -932,35 +1029,47 @@ class JiraNotesExtension {
       }
 
       // Проверяем, добавились ли новые карточки на доску
-      const hasNewCards = Array.from(mutations).some(mutation => {
-        return Array.from(mutation.addedNodes).some(node => {
-          if (node.nodeType === 1) {
-            return node.matches && (
-              node.matches('[data-testid*="card"]') ||
-              node.matches('a[href*="browse"]') ||
-              node.querySelector('a[href*="browse"]')
-            );
+      const hasNewCards = mutations.some(mutation => {
+        return mutation.addedNodes.length > 0 && 
+               Array.from(mutation.addedNodes).some(node => {
+          if (node.nodeType === 1 && node.matches) {
+            return node.matches('[data-testid*="card"]') ||
+                   node.matches('a[href*="browse"]') ||
+                   node.querySelector('a[href*="browse"]');
           }
           return false;
         });
       });
 
       if (hasNewCards) {
-        console.log('🔄 New cards detected, updating...');
-        setTimeout(() => this.updateAllCards(), 300);
+        console.log('🔄 New cards detected, scheduling update...');
+        scheduleUpdate();
       }
     });
 
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true
-    });
+    // Оптимизация: наблюдаем только за board container, а не за всем body
+    const observeBoard = () => {
+      const boardContainer = document.querySelector('[data-testid="software-board.board-container.board"]') || 
+                            document.querySelector('[data-test-id="platform-board-kit.ui.board.scroll.board-scroll"]') ||
+                            document.body;
+      
+      if (boardContainer && boardContainer !== document.body) {
+        console.log('📍 Observing optimized board container');
+      } else {
+        console.log('📍 Observing body (board container not found)');
+      }
+
+      observer.observe(boardContainer, {
+        childList: true,
+        subtree: true
+      });
+    };
+
+    // Запускаем наблюдение с небольшой задержкой для загрузки DOM
+    setTimeout(observeBoard, 1000);
 
     // Дополнительно следим за изменениями URL
     this.watchUrlChanges();
-    
-    // Обновляем карточки ТОЛЬКО при изменениях через MutationObserver
-    // Убрали постоянный setInterval для предотвращения мерцания
   }
 
   // Отслеживаем изменения URL (для selectedIssue параметра)

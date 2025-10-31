@@ -203,6 +203,10 @@
   background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
 }
 
+.status-purple {
+  background: linear-gradient(135deg, #a855f7 0%, #9333ea 100%);
+}
+
 .status-green {
   background: linear-gradient(135deg, #10b981 0%, #059669 100%);
 }
@@ -301,6 +305,10 @@
 
 .jira-personal-status.status-yellow {
   background: #EAB308 !important;
+}
+
+.jira-personal-status.status-purple {
+  background: #A855F7 !important;
 }
 
 .jira-personal-status.status-green {

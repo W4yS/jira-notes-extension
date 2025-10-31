@@ -27,12 +27,20 @@ async function updateStats() {
 
 // Настройка обработчиков событий
 function setupEventListeners() {
+  document.getElementById('settingsBtn').addEventListener('click', openSettings);
   document.getElementById('exportBtn').addEventListener('click', exportNotes);
   document.getElementById('importBtn').addEventListener('click', () => {
     document.getElementById('importFile').click();
   });
   document.getElementById('importFile').addEventListener('change', importNotes);
   document.getElementById('clearBtn').addEventListener('click', clearAllNotes);
+}
+
+// Открыть страницу настроек
+function openSettings() {
+  chrome.tabs.create({
+    url: chrome.runtime.getURL('settings.html')
+  });
 }
 
 // Экспорт заметок в JSON

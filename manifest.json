@@ -9,7 +9,6 @@
   ],
   "host_permissions": [
     "*://*.atlassian.net/*",
-    "*://jira.*/*",
     "https://*.firebaseio.com/*",
     "https://*.googleapis.com/*",
     "https://www.gstatic.com/*"
