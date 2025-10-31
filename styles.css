@@ -8,12 +8,12 @@
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', sans-serif;
   overflow: hidden;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05);
-  z-index: 999999;
+  z-index: 2147483647 !important; /* Максимальный z-index */
   pointer-events: auto;
 }
 
 .jira-notes-floating {
-  position: fixed;
+  position: fixed !important; /* !important чтобы не перезаписывалось */
   width: 300px;
   max-width: 90vw;
   display: block;

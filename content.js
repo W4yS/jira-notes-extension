@@ -330,18 +330,38 @@ class JiraNotesExtension {
   // Защита панели от удаления - УПРОЩЕННАЯ ВЕРСИЯ (без лагов при скролле)
   protectPanel(panel) {
     // Устанавливаем максимальный z-index и GPU ускорение
-    panel.style.zIndex = '999999';
+    const ensureZIndex = () => {
+      panel.style.zIndex = '2147483647'; // Максимально возможный z-index
+      panel.style.position = 'fixed';
+    };
+    
+    ensureZIndex();
     panel.style.willChange = 'transform'; // GPU ускорение для плавности
     
-    // Только проверяем что панель в DOM (без проверки стилей!)
+    // Только проверяем что панель в DOM и z-index не изменился
     const protectionInterval = setInterval(() => {
       if (!document.body.contains(panel)) {
         console.log(`⚠️ Panel was removed from DOM, re-adding...`);
         document.body.appendChild(panel);
+        ensureZIndex();
+      } else if (panel.style.zIndex !== '2147483647') {
+        // Если кто-то изменил z-index - восстанавливаем
+        ensureZIndex();
       }
-    }, 2000); // Проверяем реже - каждые 2 секунды вместо 500мс
+    }, 2000); // Проверяем каждые 2 секунды
     
-    // Убираем MutationObserver и setAttribute перехват - они вызывают лаги!
+    // При скролле проверяем z-index (throttled)
+    let scrollTimeout;
+    const handleScroll = () => {
+      if (scrollTimeout) return;
+      scrollTimeout = setTimeout(() => {
+        ensureZIndex();
+        scrollTimeout = null;
+      }, 100); // Проверяем не чаще чем раз в 100мс
+    };
+    
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    document.addEventListener('scroll', handleScroll, { passive: true, capture: true });
   }
 
   // Привязываем обработчики событий - ОПТИМИЗИРОВАННАЯ ВЕРСИЯ
