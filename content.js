@@ -1,16 +1,11 @@
 // Главный скрипт расширения для добавления заметок к задачам Jira
 
-// Динамический импорт сервиса синхронизации
-let syncService = null;
-
 class JiraNotesExtension {
   constructor() {
     this.currentIssueKey = null;
     this.notesContainer = null;
     this.initialized = false;
     this.isUpdating = false; // Флаг для предотвращения множественных обновлений
-    this.syncMode = 'personal'; // По умолчанию личный режим
-    this.syncInitialized = false;
     
     // Кеш для оптимизации производительности
     this.statusCache = {}; // { issueKey: status }
@@ -112,125 +107,6 @@ class JiraNotesExtension {
     });
     
     console.log('✅ Cleanup complete');
-  }
-
-  // Инициализация синхронизации
-  async initSync() {
-    try {
-      const settings = await chrome.storage.local.get(['syncMode', 'teamId', 'userEmail', 'userName', 'userColor']);
-      this.syncMode = settings.syncMode || 'personal';
-
-      console.log(`🔄 Sync mode: ${this.syncMode}`);
-
-      if (this.syncMode === 'team' && settings.teamId && settings.userEmail) {
-        // Загружаем сервис синхронизации динамически
-        if (!syncService) {
-          const module = await import(chrome.runtime.getURL('sync-service.js'));
-          syncService = module.syncService;
-        }
-
-        // Инициализируем соединение
-        const success = await syncService.init(
-          settings.teamId,
-          settings.userEmail,
-          settings.userName,
-          settings.userColor
-        );
-
-        if (success) {
-          this.syncInitialized = true;
-          console.log('✅ Sync service initialized');
-
-          // Подписываемся на изменения
-          syncService.subscribeToChanges((notes) => {
-            this.handleSyncUpdate(notes);
-          });
-
-          // Загружаем командные заметки
-          await syncService.loadAllTeamNotes();
-        } else {
-          console.warn('⚠️ Sync initialization failed, using local mode');
-        }
-      } else {
-        console.log('👤 Using personal mode (local storage only)');
-      }
-    } catch (error) {
-      console.error('❌ Sync initialization error:', error);
-      this.syncMode = 'personal';
-    }
-  }
-
-  // Обработка обновлений из синхронизации
-  handleSyncUpdate(notes) {
-    console.log('🔄 Sync update received:', Object.keys(notes).length, 'notes');
-    
-    // Обновляем все карточки на доске
-    this.updateAllCards();
-
-    // Если открыта заметка для текущей задачи - обновляем её
-    if (this.currentIssueKey && notes[this.currentIssueKey]) {
-      const note = notes[this.currentIssueKey];
-      this.updateCurrentNotePanel(note);
-    }
-  }
-
-  // Обновление текущей панели заметок (при получении данных из синхронизации)
-  updateCurrentNotePanel(note) {
-    const textarea = document.querySelector('.jira-notes-textarea');
-    if (textarea && textarea.value !== note.text) {
-      textarea.value = note.text || '';
-    }
-
-    // Обновляем статус
-    document.querySelectorAll('.status-button').forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.status === note.status);
-    });
-
-    // Показываем информацию о последнем редакторе
-    this.showLastModifiedInfo(note);
-  }
-
-  // Показ информации о последнем редакторе
-  showLastModifiedInfo(note) {
-    if (!note.lastModifiedBy || note.lastModifiedBy === this.userId) return;
-
-    // Удаляем старый индикатор
-    const oldIndicator = document.querySelector('.sync-editor-info');
-    if (oldIndicator) oldIndicator.remove();
-
-    // Создаём новый
-    const indicator = document.createElement('div');
-    indicator.className = 'sync-editor-info';
-    indicator.style.cssText = `
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 12px;
-      background: #f5f5f5;
-      border-radius: 6px;
-      font-size: 12px;
-      color: #666;
-      margin-top: 8px;
-    `;
-
-    const colorDot = document.createElement('div');
-    colorDot.style.cssText = `
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      background: ${note.lastModifiedByColor || '#666'};
-    `;
-
-    const timeStr = note.lastModified ? new Date(note.lastModified).toLocaleString('ru-RU') : '';
-    indicator.innerHTML = `
-      ${colorDot.outerHTML}
-      <span>Отредактировано: <strong>${note.lastModifiedByName || 'Unknown'}</strong> ${timeStr}</span>
-    `;
-
-    const panel = document.querySelector('.jira-notes-panel');
-    if (panel) {
-      panel.appendChild(indicator);
-    }
   }
 
   // Определяем ключ текущей задачи
