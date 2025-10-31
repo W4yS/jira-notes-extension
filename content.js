@@ -66,7 +66,9 @@ class JiraNotesExtension {
     // ОЧИЩАЕМ ВСЕ СТАРЫЕ ЭЛЕМЕНТЫ при инициализации расширения
     this.cleanupOldElements();
     
-    await this.initSync(); // Инициализируем синхронизацию
+    // Работаем только в локальном режиме
+    console.log('💾 Using local storage mode');
+    
     await this.loadStatusesMetadata(); // Загружаем метаданные статусов
     this.detectIssueKey();
     this.injectNotesPanel();

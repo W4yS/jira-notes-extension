@@ -30,7 +30,12 @@
   "options_page": "settings.html",
   "web_accessible_resources": [
     {
-      "resources": ["firebase-config.js", "sync-service.js"],
+      "resources": [
+        "firebase-config.js", 
+        "sync-service.js",
+        "firebase-app-compat.js",
+        "firebase-database-compat.js"
+      ],
       "matches": ["*://*.atlassian.net/*"]
     }
   ]
