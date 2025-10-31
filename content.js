@@ -265,14 +265,7 @@ class JiraNotesExtension {
     const panel = document.createElement('div');
     panel.className = 'jira-notes-panel jira-notes-floating';
     panel.setAttribute('data-jira-notes-panel', 'true');
-    panel.style.cssText = `
-      display: block !important;
-      visibility: visible !important;
-      opacity: 1 !important;
-      position: fixed !important;
-      z-index: 999999 !important;
-      pointer-events: auto !important;
-    `;
+    // Убираем излишние inline стили - они уже в CSS
     
     // Генерируем кнопки статусов динамически
     const statusButtons = statuses.map(status => `
@@ -334,70 +327,21 @@ class JiraNotesExtension {
     return panel;
   }
 
-  // Защита панели от удаления - ОПТИМИЗИРОВАННАЯ ВЕРСИЯ
+  // Защита панели от удаления - УПРОЩЕННАЯ ВЕРСИЯ (без лагов при скролле)
   protectPanel(panel) {
-    // Устанавливаем максимальный z-index
+    // Устанавливаем максимальный z-index и GPU ускорение
     panel.style.zIndex = '999999';
+    panel.style.willChange = 'transform'; // GPU ускорение для плавности
     
-    let checkCount = 0;
-    const MAX_CHECKS = 120; // 60 секунд (каждые 500мс)
-    
-    // Периодически проверяем, что панель на месте (первую минуту активно, потом реже)
+    // Только проверяем что панель в DOM (без проверки стилей!)
     const protectionInterval = setInterval(() => {
-      checkCount++;
-      
-      // После 60 секунд проверяем реже (каждые 5 секунд)
-      if (checkCount > MAX_CHECKS && checkCount % 10 !== 0) {
-        return;
-      }
-      
       if (!document.body.contains(panel)) {
         console.log(`⚠️ Panel was removed from DOM, re-adding...`);
         document.body.appendChild(panel);
-        panel.style.zIndex = '999999';
-        panel.style.display = 'block';
       }
-      
-      // Убеждаемся что панель видима если есть задача
-      if (this.currentIssueKey) {
-        const computedStyle = window.getComputedStyle(panel);
-        if (computedStyle.display === 'none' || computedStyle.visibility === 'hidden' || computedStyle.opacity === '0') {
-          panel.style.display = 'block';
-          panel.style.visibility = 'visible';
-          panel.style.opacity = '1';
-        }
-      }
-    }, 500);
+    }, 2000); // Проверяем реже - каждые 2 секунды вместо 500мс
     
-    // Наблюдаем за изменениями атрибутов панели (только style)
-    const observer = new MutationObserver((mutations) => {
-      for (const mutation of mutations) {
-        if (mutation.type === 'attributes' && mutation.attributeName === 'style') {
-          const currentDisplay = panel.style.display;
-          if (currentDisplay === 'none' || currentDisplay === '') {
-            panel.style.display = 'block';
-            panel.style.visibility = 'visible';
-            panel.style.opacity = '1';
-          }
-          break; // Обрабатываем только первое изменение
-        }
-      }
-    });
-    
-    observer.observe(panel, {
-      attributes: true,
-      attributeFilter: ['style']
-    });
-    
-    // Дополнительная защита - перехватываем попытки изменить display
-    const originalSetAttribute = panel.setAttribute.bind(panel);
-    panel.setAttribute = function(name, value) {
-      if (name === 'style' && (value.includes('display: none') || value.includes('display:none'))) {
-        console.log('🔴 Blocked setAttribute attempt to hide panel');
-        return;
-      }
-      return originalSetAttribute(name, value);
-    };
+    // Убираем MutationObserver и setAttribute перехват - они вызывают лаги!
   }
 
   // Привязываем обработчики событий - ОПТИМИЗИРОВАННАЯ ВЕРСИЯ
