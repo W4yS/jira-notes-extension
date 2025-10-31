@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Test Address Normalization</title>
+  <style>
+    body { font-family: monospace; padding: 20px; }
+    .test { margin: 10px 0; padding: 10px; border: 1px solid #ccc; }
+    .match { background: #d4edda; }
+    .no-match { background: #f8d7da; }
+  </style>
+</head>
+<body>
+  <h1>🧪 Test Address Normalization</h1>
+  
+  <div id="results"></div>
+
+  <script>
+    // Копируем функцию нормализации (УЛУЧШЕННАЯ ВЕРСИЯ)
+    function normalizeAddress(text) {
+      if (!text) return '';
+      return text
+        .toLowerCase()
+        .replace(/санкт-петербург|спб|с-пб/gi, '') // Убираем город
+        .replace(/бизнес-центр|бц/gi, '') // Убираем БЦ
+        .replace(/коворкинг/gi, '') // Убираем коворкинг
+        .replace(/улица|ул\./gi, 'ул') // Нормализуем улица
+        .replace(/проспект|пр-кт|пр\./gi, 'пр') // Нормализуем проспект
+        .replace(/дом|д\./gi, '') // Убираем "дом"
+        .replace(/корпус|к\./gi, 'к') // Нормализуем корпус
+        .replace(/строение|стр\./gi, 'стр') // Нормализуем строение
+        .replace(/[.,\s"«»]+/g, '') // Убираем пробелы, точки, запятые, кавычки
+        .replace(/-/g, ''); // Убираем дефисы
+    }
+
+    // Тестовые данные
+    const tests = [
+      {
+        input: "СПб, ул.Савушкина, дом 126А, БЦ \"Атлантик-сити\"",
+        address: "Савушкина 126",
+        expectedCode: "Тургенев"
+      },
+      {
+        input: "коворкинг Collective, ул. Гороховая 49Б, 4 этаж",
+        address: "Гороховая 49",
+        expectedCode: "Дуров"
+      },
+      {
+        input: "Санкт-Петербург, пр-кт Луначарского, д. 108к3",
+        address: "Толстого 1/3",
+        expectedCode: "Терещенко"
+      }
+    ];
+
+    // Запускаем тесты
+    const resultsDiv = document.getElementById('results');
+    
+    tests.forEach((test, idx) => {
+      const normalizedInput = normalizeAddress(test.input);
+      const normalizedAddress = normalizeAddress(test.address);
+      
+      const matches = normalizedInput.includes(normalizedAddress);
+      
+      const testDiv = document.createElement('div');
+      testDiv.className = `test ${matches ? 'match' : 'no-match'}`;
+      testDiv.innerHTML = `
+        <strong>Test ${idx + 1}:</strong> ${matches ? '✅ MATCH' : '❌ NO MATCH'}<br>
+        <strong>Input:</strong> "${test.input}"<br>
+        <strong>Normalized Input:</strong> "${normalizedInput}"<br>
+        <strong>Address:</strong> "${test.address}"<br>
+        <strong>Normalized Address:</strong> "${normalizedAddress}"<br>
+        <strong>Expected Code:</strong> ${test.expectedCode}<br>
+        <strong>Contains:</strong> ${normalizedInput.includes(normalizedAddress)}
+      `;
+      resultsDiv.appendChild(testDiv);
+    });
+  </script>
+</body>
+</html>
