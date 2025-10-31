@@ -14,6 +14,7 @@ class JiraNotesExtension {
     this.processedCards = new Set(); // Карточки, которые уже обработаны
     this.lastUpdateTime = 0; // Время последнего обновления
     this.statusesMetadata = {}; // Кеш метаданных статусов { statusId: { name, color, emoji } }
+    this.contextInvalidatedShown = false; // Флаг для показа уведомления о перезагрузке
     
     // Таблица соответствий адресов и кодов (загружается из code.json)
     this.addressMapping = {
@@ -485,7 +486,7 @@ class JiraNotesExtension {
     } catch (error) {
       // Игнорируем ошибку Extension context invalidated
       if (error.message?.includes('Extension context invalidated')) {
-        console.warn('⚠️ Extension context invalidated during save, ignoring');
+        console.warn('⚠️ Extension context invalidated during save');
       } else {
         console.error('Error saving position:', error);
       }
@@ -823,7 +824,12 @@ class JiraNotesExtension {
   async updateAllCards() {
     // Проверяем, что контекст расширения еще валиден
     if (!chrome.runtime?.id) {
-      console.warn('⚠️ Extension context invalidated, skipping card update');
+      console.warn('⚠️ Extension context invalidated - extension was reloaded. Please refresh the page.');
+      // Показываем уведомление пользователю один раз
+      if (!this.contextInvalidatedShown) {
+        this.contextInvalidatedShown = true;
+        this.showReloadNotification();
+      }
       return;
     }
     
@@ -1011,6 +1017,43 @@ class JiraNotesExtension {
   // Показываем статус операции
   showStatus(message, type = 'info') {
     console.log('Status:', message, type);
+  }
+
+  // Показываем уведомление о необходимости перезагрузки страницы
+  showReloadNotification() {
+    const notification = document.createElement('div');
+    notification.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: #FFA500;
+      color: white;
+      padding: 16px 20px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      z-index: 2147483647;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 14px;
+      max-width: 300px;
+      cursor: pointer;
+    `;
+    notification.innerHTML = `
+      <div style="font-weight: bold; margin-bottom: 8px;">⚠️ Расширение обновлено</div>
+      <div style="font-size: 13px;">Обновите страницу (F5) для корректной работы</div>
+    `;
+    
+    notification.addEventListener('click', () => {
+      location.reload();
+    });
+    
+    document.body.appendChild(notification);
+    
+    // Автоматически скрываем через 10 секунд
+    setTimeout(() => {
+      notification.style.opacity = '0';
+      notification.style.transition = 'opacity 0.3s';
+      setTimeout(() => notification.remove(), 300);
+    }, 10000);
   }
 
   // Наблюдатель за изменениями в DOM (для SPA) - ОПТИМИЗИРОВАННАЯ ВЕРСИЯ
