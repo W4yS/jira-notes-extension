@@ -8,10 +8,7 @@
     "activeTab"
   ],
   "host_permissions": [
-    "*://*.atlassian.net/*",
-    "https://*.firebaseio.com/*",
-    "https://*.googleapis.com/*",
-    "https://www.gstatic.com/*"
+    "*://*.atlassian.net/*"
   ],
   "content_scripts": [
     {
@@ -27,16 +24,5 @@
   "action": {
     "default_popup": "popup.html"
   },
-  "options_page": "settings.html",
-  "web_accessible_resources": [
-    {
-      "resources": [
-        "firebase-config.js", 
-        "sync-service.js",
-        "firebase-app-compat.js",
-        "firebase-database-compat.js"
-      ],
-      "matches": ["*://*.atlassian.net/*"]
-    }
-  ]
+  "options_page": "settings.html"
 }
