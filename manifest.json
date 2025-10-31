@@ -28,9 +28,6 @@
     "default_popup": "popup.html"
   },
   "options_page": "settings.html",
-  "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'"
-  },
   "web_accessible_resources": [
     {
       "resources": ["firebase-config.js", "sync-service.js"],

@@ -13,6 +13,12 @@ class SyncService {
     this.isInitialized = false;
   }
 
+  // Экранирование email для использования в Firebase paths
+  // Firebase не разрешает: . $ # [ ] /
+  escapeEmail(email) {
+    return email.replace(/\./g, ',');
+  }
+
   // Инициализация Firebase
   async init(teamId, userEmail, userName, userColor) {
     if (this.isInitialized) {
@@ -24,12 +30,14 @@ class SyncService {
       console.log('🔥 Initializing Firebase sync...');
       
       this.teamId = teamId;
-      this.userId = userEmail;
+      this.userId = this.escapeEmail(userEmail); // Экранируем email
       this.userName = userName || userEmail.split('@')[0];
       this.userColor = userColor || '#667eea';
 
-      // Загружаем Firebase SDK из CDN
-      await this.loadFirebaseSDK();
+      // Проверяем что Firebase уже загружен
+      if (typeof firebase === 'undefined') {
+        throw new Error('Firebase SDK not loaded. Make sure Firebase scripts are included in HTML.');
+      }
 
       // Инициализируем Firebase
       if (!firebase.apps.length) {
@@ -52,42 +60,28 @@ class SyncService {
     }
   }
 
-  // Загрузка Firebase SDK
-  async loadFirebaseSDK() {
-    return new Promise((resolve, reject) => {
-      if (typeof firebase !== 'undefined') {
-        resolve();
-        return;
-      }
-
-      // Firebase App
-      const appScript = document.createElement('script');
-      appScript.src = 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js';
-      appScript.onload = () => {
-        // Firebase Database
-        const dbScript = document.createElement('script');
-        dbScript.src = 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js';
-        dbScript.onload = () => resolve();
-        dbScript.onerror = () => reject(new Error('Failed to load Firebase Database'));
-        document.head.appendChild(dbScript);
-      };
-      appScript.onerror = () => reject(new Error('Failed to load Firebase App'));
-      document.head.appendChild(appScript);
-    });
-  }
-
   // Регистрация пользователя в команде
   async registerUser() {
     if (!this.db || !this.teamId || !this.userId) return;
 
-    const userRef = this.db.ref(`teams/${this.teamId}/members/${this.userId}`);
-    await userRef.set({
-      name: this.userName,
-      color: this.userColor,
-      lastSeen: firebase.database.ServerValue.TIMESTAMP
-    });
+    try {
+      const userRef = this.db.ref(`teams/${this.teamId}/members/${this.userId}`);
+      await userRef.set({
+        name: this.userName,
+        color: this.userColor,
+        lastSeen: firebase.database.ServerValue.TIMESTAMP
+      });
 
-    console.log(`👤 User registered: ${this.userName} (${this.userColor})`);
+      console.log(`👤 User registered: ${this.userName} (${this.userColor})`);
+    } catch (error) {
+      // Игнорируем ошибки доступа - синхронизация опциональна
+      if (error.code === 'PERMISSION_DENIED') {
+        console.warn('⚠️ Firebase permissions not configured. Using local storage only.');
+        this.isOnline = false; // Переключаемся в локальный режим
+      } else {
+        console.error('❌ User registration error:', error);
+      }
+    }
   }
 
   // Сохранение заметки (синхронизированное)
