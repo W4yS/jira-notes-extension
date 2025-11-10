@@ -1194,8 +1194,6 @@ class JiraNotesExtension {
       }
     };
 
-    };
-
     // MutationObserver для отслеживания НОВЫХ карточек в DOM
     const mutationObserver = new MutationObserver((mutations) => {
       // Проверяем, изменился ли URL или содержимое
