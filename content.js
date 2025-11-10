@@ -20,7 +20,8 @@ class JiraNotesExtension {
     // Таблица соответствий адресов и кодов (загружается из code.json)
     this.addressMapping = {
       codes: [],
-      addresses: []
+      addresses: [],
+      normalizedAddresses: [] // НОВОЕ: кеш нормализованных адресов
     };
     
     // Загружаем маппинг и настройки при инициализации
@@ -48,15 +49,35 @@ class JiraNotesExtension {
       
       this.addressMapping = {
         codes: data.code || [],
-        addresses: data.addresses || []
+        addresses: data.addresses || [],
+        normalizedAddresses: [] // Предвычислим нормализованные адреса
       };
       
-      console.log('📋 Address mapping loaded:', this.addressMapping.codes.length, 'codes');
+      // ОПТИМИЗАЦИЯ: Предвычисляем нормализованные адреса ОДИН РАЗ
+      this.addressMapping.normalizedAddresses = this.addressMapping.addresses.map(
+        addr => this.normalizeAddress(addr)
+      );
+      
+      console.log('📋 Address mapping loaded:', this.addressMapping.codes.length, 'codes (normalized cache ready)');
     } catch (error) {
       console.error('❌ Failed to load address mapping:', error);
       // Fallback на пустые массивы
-      this.addressMapping = { codes: [], addresses: [] };
+      this.addressMapping = { codes: [], addresses: [], normalizedAddresses: [] };
     }
+  }
+
+  // ОПТИМИЗАЦИЯ: Быстрое сравнение объектов (без JSON.stringify)
+  compareObjects(obj1, obj2) {
+    const keys1 = Object.keys(obj1);
+    const keys2 = Object.keys(obj2);
+    
+    if (keys1.length !== keys2.length) return false;
+    
+    for (const key of keys1) {
+      if (obj1[key] !== obj2[key]) return false;
+    }
+    
+    return true;
   }
 
   // Получение метаданных статуса (с кешированием)
@@ -716,16 +737,15 @@ class JiraNotesExtension {
           
           console.log(`🔤 Normalized: Field1="${normalized1}", Field2="${normalized2}"`);
           
-          // Ищем совпадение по нормализованным адресам
+          // ОПТИМИЗАЦИЯ: Используем предвычисленный кеш вместо нормализации на каждую итерацию
           for (let i = 0; i < this.addressMapping.addresses.length; i++) {
-            const address = this.addressMapping.addresses[i];
-            const normalizedAddress = this.normalizeAddress(address);
+            const normalizedAddress = this.addressMapping.normalizedAddresses[i];
             
             // Проверяем вхождение (частичное совпадение)
             if ((normalized1 && normalized1.includes(normalizedAddress)) || 
                 (normalized2 && normalized2.includes(normalizedAddress))) {
               foundCode = this.addressMapping.codes[i];
-              console.log(`✅ Found normalized address match: "${address}" -> "${foundCode}"`);
+              console.log(`✅ Found normalized address match: "${this.addressMapping.addresses[i]}" -> "${foundCode}"`);
               break;
             }
           }
@@ -851,7 +871,7 @@ class JiraNotesExtension {
     });
   }
 
-  // Обновляем ВСЕ карточки на доске (ОПТИМИЗИРОВАННАЯ ВЕРСИЯ v2)
+  // Обновляем ВСЕ карточки на доске (ОПТИМИЗИРОВАННАЯ ВЕРСИЯ v3)
   async updateAllCards() {
     // Проверяем, что контекст расширения еще валиден
     if (!chrome.runtime?.id) {
@@ -864,9 +884,9 @@ class JiraNotesExtension {
       return;
     }
     
-    // Дебаунсинг - не обновляем чаще чем раз в 1.5 секунды (было 2)
+    // ОПТИМИЗАЦИЯ: Дебаунсинг увеличен с 1.5с до 2с (меньше ненужных обновлений)
     const now = Date.now();
-    if (now - this.lastUpdateTime < 1500) {
+    if (now - this.lastUpdateTime < 2000) {
       console.log('⏭️ Skipping update - debouncing (too soon)');
       return;
     }
@@ -899,10 +919,13 @@ class JiraNotesExtension {
         }
       }
       
-      // Проверяем изменился ли кеш
-      const statusChanged = JSON.stringify(this.statusCache) !== JSON.stringify(newStatusCache);
-      const addressChanged = JSON.stringify(this.addressCache) !== JSON.stringify(newAddressCache);
-      const codeChanged = JSON.stringify(this.codeCache) !== JSON.stringify(newCodeCache);
+      // ОПТИМИЗАЦИЯ: Быстрое сравнение по размеру вместо JSON.stringify
+      const statusChanged = Object.keys(this.statusCache).length !== Object.keys(newStatusCache).length ||
+                            !this.compareObjects(this.statusCache, newStatusCache);
+      const addressChanged = Object.keys(this.addressCache).length !== Object.keys(newAddressCache).length ||
+                              !this.compareObjects(this.addressCache, newAddressCache);
+      const codeChanged = Object.keys(this.codeCache).length !== Object.keys(newCodeCache).length ||
+                          !this.compareObjects(this.codeCache, newCodeCache);
       
       if (statusChanged || addressChanged || codeChanged) {
         this.statusCache = newStatusCache;
@@ -933,9 +956,18 @@ class JiraNotesExtension {
       console.log(`🎴 Processing ${allCards.length} cards`);
       
       let newCardsCount = 0;
-      const fragment = document.createDocumentFragment(); // Используем fragment для batch DOM операций
       
-      allCards.forEach(cardContainer => {
+      // ОПТИМИЗАЦИЯ: Обрабатываем карточки батчами через requestAnimationFrame
+      const BATCH_SIZE = 20; // Обрабатываем по 20 карточек за раз
+      const cardsArray = Array.from(allCards);
+      
+      for (let i = 0; i < cardsArray.length; i += BATCH_SIZE) {
+        const batch = cardsArray.slice(i, i + BATCH_SIZE);
+        
+        // Ждем следующего фрейма перед обработкой батча
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        
+        batch.forEach(cardContainer => {
         // Ищем ссылку с номером задачи ВНУТРИ
         const link = cardContainer.querySelector('a[href*="/browse/"], a[href*="selectedIssue="]');
         if (!link) return;
@@ -1032,6 +1064,7 @@ class JiraNotesExtension {
           link.appendChild(addressSpan);
         }
       });
+      }
       
       if (newCardsCount > 0) {
         console.log(`✅ Processed ${newCardsCount} NEW cards (${allCards.length - newCardsCount} already done)`);
