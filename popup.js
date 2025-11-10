@@ -144,10 +144,15 @@ async function importNotes(event) {
   event.target.value = '';
 }
 
-// Очистка всех заметок
+// Очистка всех заметок, статусов, адресов, кодов и кеша
 async function clearAllNotes() {
   const confirmed = confirm(
-    'Вы уверены, что хотите удалить ВСЕ заметки и метки?\n\n' +
+    'Вы уверены, что хотите удалить ВСЕ данные?\n\n' +
+    '• Все заметки\n' +
+    '• Все статусы\n' +
+    '• Все адреса и коды офисов\n' +
+    '• Весь кеш\n\n' +
+    'Маппинг офисов (code.json) будет сохранен.\n\n' +
     'Это действие нельзя отменить!'
   );
 
@@ -155,14 +160,31 @@ async function clearAllNotes() {
 
   try {
     const data = await chrome.storage.local.get(null);
+    
+    // Удаляем ВСЁ кроме настроек расширения и кастомных статусов
     const keysToRemove = Object.keys(data).filter(key => 
-      key.startsWith('note_') || key.startsWith('tag_')
+      key.startsWith('note_') ||      // Заметки
+      key.startsWith('tag_') ||        // Метки (старое)
+      key.startsWith('status_') ||     // Статусы
+      key.startsWith('address_') ||    // Адреса
+      key.startsWith('code_') ||       // Коды офисов
+      key === 'panel_position'         // Позиция панели
     );
+    
+    console.log(`🗑️ Clearing ${keysToRemove.length} items from storage:`, {
+      notes: keysToRemove.filter(k => k.startsWith('note_')).length,
+      tags: keysToRemove.filter(k => k.startsWith('tag_')).length,
+      statuses: keysToRemove.filter(k => k.startsWith('status_')).length,
+      addresses: keysToRemove.filter(k => k.startsWith('address_')).length,
+      codes: keysToRemove.filter(k => k.startsWith('code_')).length,
+      other: keysToRemove.filter(k => !k.startsWith('note_') && !k.startsWith('tag_') && 
+             !k.startsWith('status_') && !k.startsWith('address_') && !k.startsWith('code_')).length
+    });
     
     await chrome.storage.local.remove(keysToRemove);
     await updateStats();
     
-    showStatus('Все данные удалены', 'success');
+    showStatus(`Удалено ${keysToRemove.length} записей. Настройки сохранены.`, 'success');
   } catch (error) {
     console.error('Clear error:', error);
     showStatus('Ошибка удаления', 'error');
