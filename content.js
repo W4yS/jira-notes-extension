@@ -1125,24 +1125,32 @@ class JiraNotesExtension {
     }, 10000);
   }
 
-  // Наблюдатель за изменениями в DOM (для SPA) - ОПТИМИЗИРОВАННАЯ ВЕРСИЯ
+  // Наблюдатель за изменениями в DOM (для SPA) - ОПТИМИЗИРОВАННАЯ ВЕРСИЯ v2
   setupObserver() {
     let lastIssueKey = this.currentIssueKey;
-    let rafId = null;
-    let pendingUpdate = false;
+    let updateTimeout = null;
+    let lastUpdateCheck = 0;
 
-    // Батчинг через requestAnimationFrame для предотвращения множественных обновлений
+    // ОПТИМИЗАЦИЯ: Throttled update с защитой от спама
     const scheduleUpdate = () => {
-      if (pendingUpdate) return;
-      pendingUpdate = true;
+      const now = Date.now();
       
-      if (rafId) cancelAnimationFrame(rafId);
+      // Игнорируем вызовы чаще чем раз в 2 секунды
+      if (now - lastUpdateCheck < 2000) {
+        return;
+      }
       
-      rafId = requestAnimationFrame(() => {
+      lastUpdateCheck = now;
+      
+      if (updateTimeout) {
+        clearTimeout(updateTimeout);
+      }
+      
+      // Задержка перед обновлением - даём время на батч мутаций
+      updateTimeout = setTimeout(() => {
         this.updateAllCards();
-        pendingUpdate = false;
-        rafId = null;
-      });
+        updateTimeout = null;
+      }, 1000); // Задержка в 1 секунду после последней мутации
     };
 
     const observer = new MutationObserver((mutations) => {
@@ -1168,21 +1176,31 @@ class JiraNotesExtension {
         setTimeout(() => this.loadNotes(), 300);
       }
 
-      // Проверяем, добавились ли новые карточки на доску
-      const hasNewCards = mutations.some(mutation => {
-        return mutation.addedNodes.length > 0 && 
-               Array.from(mutation.addedNodes).some(node => {
-          if (node.nodeType === 1 && node.matches) {
-            return node.matches('[data-testid*="card"]') ||
-                   node.matches('a[href*="browse"]') ||
-                   node.querySelector('a[href*="browse"]');
+      // ОПТИМИЗАЦИЯ: Более строгая проверка новых карточек
+      let hasSignificantCards = false;
+      
+      for (const mutation of mutations) {
+        if (mutation.type !== 'childList') continue;
+        if (mutation.addedNodes.length === 0) continue;
+        
+        for (const node of mutation.addedNodes) {
+          if (node.nodeType !== 1) continue; // Только элементы
+          
+          // Ищем ТОЛЬКО контейнеры карточек, а не все элементы с ссылками
+          if (node.matches && (
+              node.matches('[data-testid="software-board.board-container.board.card-container.card-with-icc"]') ||
+              node.querySelector('[data-testid="software-board.board-container.board.card-container.card-with-icc"]')
+          )) {
+            hasSignificantCards = true;
+            break;
           }
-          return false;
-        });
-      });
+        }
+        
+        if (hasSignificantCards) break;
+      }
 
-      if (hasNewCards) {
-        console.log('🔄 New cards detected, scheduling update...');
+      if (hasSignificantCards) {
+        console.log('🔄 New card containers detected, scheduling update...');
         scheduleUpdate();
       }
     });
@@ -1200,8 +1218,10 @@ class JiraNotesExtension {
       }
 
       observer.observe(boardContainer, {
-        childList: true,
-        subtree: true
+        childList: true, // Только добавление/удаление узлов
+        subtree: true,
+        attributes: false, // НЕ отслеживаем изменения атрибутов (экономит ресурсы!)
+        characterData: false // НЕ отслеживаем текстовый контент
       });
     };
 
