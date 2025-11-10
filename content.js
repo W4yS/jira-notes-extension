@@ -871,7 +871,7 @@ class JiraNotesExtension {
     });
   }
 
-  // Обновляем ВСЕ карточки на доске (ОПТИМИЗИРОВАННАЯ ВЕРСИЯ v3)
+  // Обновляем ВСЕ карточки на доске (МОМЕНТАЛЬНАЯ ВЕРСИЯ v4 - без задержек)
   async updateAllCards() {
     // Проверяем, что контекст расширения еще валиден
     if (!chrome.runtime?.id) {
@@ -884,20 +884,8 @@ class JiraNotesExtension {
       return;
     }
     
-    // ОПТИМИЗАЦИЯ: Дебаунсинг увеличен с 1.5с до 2с (меньше ненужных обновлений)
+    // УБИРАЕМ debouncing и проверку isUpdating - обрабатываем мгновенно
     const now = Date.now();
-    if (now - this.lastUpdateTime < 2000) {
-      console.log('⏭️ Skipping update - debouncing (too soon)');
-      return;
-    }
-    
-    // Если уже идет обновление, пропускаем
-    if (this.isUpdating) {
-      console.log('⏭️ Skipping update - already in progress');
-      return;
-    }
-    
-    this.isUpdating = true;
     this.lastUpdateTime = now;
     
     try {
@@ -953,21 +941,12 @@ class JiraNotesExtension {
         return;
       }
       
-      console.log(`🎴 Processing ${allCards.length} cards`);
+      console.log(`🎴 Processing ${allCards.length} cards (INSTANT MODE)`);
       
       let newCardsCount = 0;
       
-      // ОПТИМИЗАЦИЯ: Обрабатываем карточки батчами через requestAnimationFrame
-      const BATCH_SIZE = 20; // Обрабатываем по 20 карточек за раз
-      const cardsArray = Array.from(allCards);
-      
-      for (let i = 0; i < cardsArray.length; i += BATCH_SIZE) {
-        const batch = cardsArray.slice(i, i + BATCH_SIZE);
-        
-        // Ждем следующего фрейма перед обработкой батча
-        await new Promise(resolve => requestAnimationFrame(resolve));
-        
-        batch.forEach(cardContainer => {
+      // МГНОВЕННАЯ ОБРАБОТКА: Обрабатываем ВСЕ карточки синхронно, без батчей
+      allCards.forEach(cardContainer => {
         // Ищем ссылку с номером задачи ВНУТРИ
         const link = cardContainer.querySelector('a[href*="/browse/"], a[href*="selectedIssue="]');
         if (!link) return;
@@ -1064,7 +1043,6 @@ class JiraNotesExtension {
           link.appendChild(addressSpan);
         }
       });
-      }
       
       if (newCardsCount > 0) {
         console.log(`✅ Processed ${newCardsCount} NEW cards (${allCards.length - newCardsCount} already done)`);
@@ -1078,8 +1056,6 @@ class JiraNotesExtension {
       } else {
         console.error('❌ Error updating cards:', error);
       }
-    } finally {
-      this.isUpdating = false;
     }
   }
 
@@ -1125,35 +1101,103 @@ class JiraNotesExtension {
     }, 10000);
   }
 
-  // Наблюдатель за изменениями в DOM (для SPA) - ОПТИМИЗИРОВАННАЯ ВЕРСИЯ v2
+  // Наблюдатель за изменениями в DOM (для SPA) - МОМЕНТАЛЬНАЯ ВЕРСИЯ v3
   setupObserver() {
     let lastIssueKey = this.currentIssueKey;
-    let updateTimeout = null;
-    let lastUpdateCheck = 0;
 
-    // ОПТИМИЗАЦИЯ: Throttled update с защитой от спама
-    const scheduleUpdate = () => {
-      const now = Date.now();
+    // МГНОВЕННАЯ ОБРАБОТКА: IntersectionObserver для видимых карточек
+    const intersectionObserver = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          // Карточка появилась в области видимости - обрабатываем МГНОВЕННО
+          const cardContainer = entry.target;
+          this.processCard(cardContainer);
+        }
+      });
+    }, {
+      root: null, // viewport
+      rootMargin: '50px', // Начинаем обрабатывать за 50px до появления
+      threshold: 0.01 // Минимальная видимость
+    });
+
+    // Функция для обработки одной карточки синхронно
+    this.processCard = (cardContainer) => {
+      const link = cardContainer.querySelector('a[href*="/browse/"], a[href*="selectedIssue="]');
+      if (!link) return;
       
-      // Игнорируем вызовы чаще чем раз в 2 секунды
-      if (now - lastUpdateCheck < 2000) {
-        return;
+      const href = link.href || '';
+      const issueMatch = href.match(/([A-Z]+-\d+)/);
+      if (!issueMatch) return;
+      
+      const issueKey = issueMatch[1];
+      
+      // Проверяем что не обработано
+      if (cardContainer.hasAttribute('data-jira-processed')) return;
+      
+      cardContainer.setAttribute('data-jira-processed', 'true');
+      cardContainer.style.position = 'relative';
+      
+      // Статус
+      if (this.statusCache[issueKey]) {
+        const statusData = this.statusesMetadata[this.statusCache[issueKey]] || { 
+          name: 'Неизвестно', 
+          color: '#9ca3af', 
+          emoji: '' 
+        };
+        
+        const statusDot = document.createElement('div');
+        statusDot.className = 'jira-personal-status';
+        statusDot.style.background = statusData.color;
+        statusDot.title = `Статус: ${statusData.name}`;
+        statusDot.setAttribute('data-issue-key', issueKey);
+        cardContainer.appendChild(statusDot);
       }
       
-      lastUpdateCheck = now;
-      
-      if (updateTimeout) {
-        clearTimeout(updateTimeout);
+      // Код офиса
+      if (this.officeDetectionEnabled && this.codeCache[issueKey]) {
+        const childDivs = link.querySelectorAll('div');
+        childDivs.forEach(div => {
+          if (div.textContent.includes(issueKey) && 
+              !div.classList.contains('jira-personal-code-inline') &&
+              !div.classList.contains('jira-personal-address-inline')) {
+            div.style.display = 'none';
+          }
+        });
+        
+        const codeSpan = document.createElement('div');
+        codeSpan.className = 'jira-personal-code-inline';
+        codeSpan.textContent = this.codeCache[issueKey];
+        codeSpan.title = `Офис: ${this.codeCache[issueKey]} (${issueKey})`;
+        
+        if (this.codeCache[issueKey] === 'ХЗ') {
+          codeSpan.style.color = '#9ca3af';
+          codeSpan.style.fontStyle = 'italic';
+        }
+        
+        link.appendChild(codeSpan);
       }
-      
-      // Задержка перед обновлением - даём время на батч мутаций
-      updateTimeout = setTimeout(() => {
-        this.updateAllCards();
-        updateTimeout = null;
-      }, 1000); // Задержка в 1 секунду после последней мутации
+      // Адрес (если нет кода)
+      else if (this.officeDetectionEnabled && this.addressCache[issueKey]) {
+        const childDivs = link.querySelectorAll('div');
+        childDivs.forEach(div => {
+          if (div.textContent.includes(issueKey) && !div.classList.contains('jira-personal-address-inline')) {
+            div.style.display = 'none';
+          }
+        });
+        
+        const addressSpan = document.createElement('div');
+        addressSpan.className = 'jira-personal-address-inline';
+        addressSpan.textContent = ` ${this.addressCache[issueKey]}`;
+        addressSpan.title = `Адрес: ${this.addressCache[issueKey]} (${issueKey})`;
+        
+        link.appendChild(addressSpan);
+      }
     };
 
-    const observer = new MutationObserver((mutations) => {
+    };
+
+    // MutationObserver для отслеживания НОВЫХ карточек в DOM
+    const mutationObserver = new MutationObserver((mutations) => {
       // Проверяем, изменился ли URL или содержимое
       const newIssueKey = this.extractIssueKeyFromUrl();
       
@@ -1176,57 +1220,80 @@ class JiraNotesExtension {
         setTimeout(() => this.loadNotes(), 300);
       }
 
-      // ОПТИМИЗАЦИЯ: Более строгая проверка новых карточек
-      let hasSignificantCards = false;
-      
+      // Отслеживаем НОВЫЕ карточки и добавляем их в IntersectionObserver
       for (const mutation of mutations) {
         if (mutation.type !== 'childList') continue;
         if (mutation.addedNodes.length === 0) continue;
         
         for (const node of mutation.addedNodes) {
-          if (node.nodeType !== 1) continue; // Только элементы
+          if (node.nodeType !== 1) continue;
           
-          // Ищем ТОЛЬКО контейнеры карточек, а не все элементы с ссылками
-          if (node.matches && (
-              node.matches('[data-testid="software-board.board-container.board.card-container.card-with-icc"]') ||
-              node.querySelector('[data-testid="software-board.board-container.board.card-container.card-with-icc"]')
-          )) {
-            hasSignificantCards = true;
-            break;
+          // Новая карточка появилась в DOM
+          if (node.matches && node.matches('[data-testid="software-board.board-container.board.card-container.card-with-icc"]')) {
+            console.log('🆕 New card detected, observing:', node);
+            intersectionObserver.observe(node);
+            
+            // Если карточка УЖЕ видима - обрабатываем мгновенно
+            const rect = node.getBoundingClientRect();
+            if (rect.top < window.innerHeight && rect.bottom > 0) {
+              this.processCard(node);
+            }
+          }
+          // Или внутри добавленного узла есть карточки
+          else if (node.querySelectorAll) {
+            const cards = node.querySelectorAll('[data-testid="software-board.board-container.board.card-container.card-with-icc"]');
+            cards.forEach(card => {
+              console.log('🆕 New card detected (nested), observing:', card);
+              intersectionObserver.observe(card);
+              
+              // Если карточка УЖЕ видима - обрабатываем мгновенно
+              const rect = card.getBoundingClientRect();
+              if (rect.top < window.innerHeight && rect.bottom > 0) {
+                this.processCard(card);
+              }
+            });
           }
         }
-        
-        if (hasSignificantCards) break;
-      }
-
-      if (hasSignificantCards) {
-        console.log('🔄 New card containers detected, scheduling update...');
-        scheduleUpdate();
       }
     });
 
-    // Оптимизация: наблюдаем только за board container, а не за всем body
+    // Оптимизация: наблюдаем только за board container
     const observeBoard = () => {
       const boardContainer = document.querySelector('[data-testid="software-board.board-container.board"]') || 
                             document.querySelector('[data-test-id="platform-board-kit.ui.board.scroll.board-scroll"]') ||
                             document.body;
       
       if (boardContainer && boardContainer !== document.body) {
-        console.log('📍 Observing optimized board container');
+        console.log('📍 Observing board container (instant mode)');
       } else {
         console.log('📍 Observing body (board container not found)');
       }
 
-      observer.observe(boardContainer, {
-        childList: true, // Только добавление/удаление узлов
+      // Mutation observer для новых карточек
+      mutationObserver.observe(boardContainer, {
+        childList: true,
         subtree: true,
-        attributes: false, // НЕ отслеживаем изменения атрибутов (экономит ресурсы!)
-        characterData: false // НЕ отслеживаем текстовый контент
+        attributes: false,
+        characterData: false
+      });
+      
+      // Intersection observer для всех СУЩЕСТВУЮЩИХ карточек
+      const existingCards = document.querySelectorAll('[data-testid="software-board.board-container.board.card-container.card-with-icc"]');
+      console.log(`👀 Setting up instant observation for ${existingCards.length} existing cards`);
+      
+      existingCards.forEach(card => {
+        intersectionObserver.observe(card);
+        
+        // Если карточка УЖЕ видима - обрабатываем мгновенно
+        const rect = card.getBoundingClientRect();
+        if (rect.top < window.innerHeight && rect.bottom > 0) {
+          this.processCard(card);
+        }
       });
     };
 
     // Запускаем наблюдение с небольшой задержкой для загрузки DOM
-    setTimeout(observeBoard, 1000);
+    setTimeout(observeBoard, 300);
 
     // Дополнительно следим за изменениями URL
     this.watchUrlChanges();
