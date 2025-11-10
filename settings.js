@@ -32,10 +32,17 @@ async function loadSettings() {
     'userEmail',
     'userName',
     'userColor',
-    'customStatuses'
+    'customStatuses',
+    'officeDetectionEnabled'
   ]);
 
   currentMode = settings.syncMode || 'personal';
+  
+  // Загружаем состояние чекбокса автоопределения офисов (по умолчанию включено)
+  const officeToggle = document.getElementById('officeDetectionToggle');
+  if (officeToggle) {
+    officeToggle.checked = settings.officeDetectionEnabled !== false; // по умолчанию true
+  }
   
   // Устанавливаем активный режим
   document.querySelectorAll('.mode-button').forEach(btn => {
@@ -283,6 +290,20 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     alert('✅ Личный режим активирован!');
   });
+
+  // Сохранение настройки автоопределения офисов
+  const officeToggle = document.getElementById('officeDetectionToggle');
+  if (officeToggle) {
+    officeToggle.addEventListener('change', async () => {
+      await chrome.storage.local.set({
+        officeDetectionEnabled: officeToggle.checked
+      });
+      console.log('🏢 Office detection:', officeToggle.checked ? 'enabled' : 'disabled');
+      alert(officeToggle.checked 
+        ? '✅ Автоопределение офисов включено!' 
+        : '⚠️ Автоопределение офисов отключено. Кодировки офисов не будут отображаться на карточках.');
+    });
+  }
 
   // === КАСТОМНЫЕ СТАТУСЫ ===
 

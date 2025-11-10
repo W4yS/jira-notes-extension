@@ -462,6 +462,19 @@
     <div class="tab-content" id="syncTab">
     <h2 style="font-size: 18px; margin-bottom: 16px; color: #667eea;">Режим работы</h2>
 
+    <!-- Переключатель автоопределения офисов -->
+    <div style="background: #f8f9fa; padding: 16px; border-radius: 8px; margin-bottom: 24px; border: 2px solid #e0e0e0;">
+      <label style="display: flex; align-items: center; gap: 12px; cursor: pointer; user-select: none;">
+        <input type="checkbox" id="officeDetectionToggle" style="width: 20px; height: 20px; cursor: pointer; accent-color: #667eea;" />
+        <div style="flex: 1;">
+          <div style="font-weight: 600; font-size: 15px; margin-bottom: 4px;">🏢 Автоопределение офисов</div>
+          <div style="font-size: 13px; color: #666; line-height: 1.4;">
+            Включает извлечение и отображение кодировок офисов на карточках Jira (Гоголь, Пушкин и т.д.)
+          </div>
+        </div>
+      </label>
+    </div>
+
     <!-- Выбор режима -->
     <div class="mode-selector">
       <div class="mode-button active" data-mode="personal">

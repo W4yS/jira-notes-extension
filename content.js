@@ -6,6 +6,7 @@ class JiraNotesExtension {
     this.notesContainer = null;
     this.initialized = false;
     this.isUpdating = false; // Флаг для предотвращения множественных обновлений
+    this.officeDetectionEnabled = true; // По умолчанию включено
     
     // Кеш для оптимизации производительности
     this.statusCache = {}; // { issueKey: status }
@@ -22,8 +23,21 @@ class JiraNotesExtension {
       addresses: []
     };
     
-    // Загружаем маппинг при инициализации
+    // Загружаем маппинг и настройки при инициализации
+    this.loadSettings();
     this.loadAddressMapping();
+  }
+  
+  // Загрузка настроек расширения
+  async loadSettings() {
+    try {
+      const result = await chrome.storage.local.get('officeDetectionEnabled');
+      this.officeDetectionEnabled = result.officeDetectionEnabled !== false; // по умолчанию true
+      console.log('⚙️ Office detection:', this.officeDetectionEnabled ? 'enabled' : 'disabled');
+    } catch (error) {
+      console.error('❌ Failed to load settings:', error);
+      this.officeDetectionEnabled = true; // fallback на включенное состояние
+    }
   }
   
   // Загрузка таблицы соответствий из code.json
@@ -98,6 +112,21 @@ class JiraNotesExtension {
     this.detectIssueKey();
     this.injectNotesPanel();
     this.setupObserver();
+    this.setupSettingsListener(); // Слушаем изменения настроек
+  }
+  
+  // Слушатель изменений настроек
+  setupSettingsListener() {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === 'local' && changes.officeDetectionEnabled) {
+        const newValue = changes.officeDetectionEnabled.newValue;
+        console.log('⚙️ Office detection setting changed:', newValue);
+        this.officeDetectionEnabled = newValue;
+        
+        // Перерисовываем карточки
+        this.updateAllCards();
+      }
+    });
   }
 
   // Загрузка метаданных статусов в кеш
@@ -393,8 +422,8 @@ class JiraNotesExtension {
         const status = button.getAttribute('data-status');
         await this.setStatus(status);
         
-        // Извлекаем адрес при установке статуса (если еще не сохранен)
-        if (!this.addressCache[this.currentIssueKey]) {
+        // Извлекаем адрес при установке статуса (если еще не сохранен и если автоопределение включено)
+        if (this.officeDetectionEnabled && !this.addressCache[this.currentIssueKey]) {
           this.extractAndSaveAddress();
         }
       }, { passive: true });
@@ -553,9 +582,11 @@ class JiraNotesExtension {
         this.displayCurrentStatus(status);
       }
       
-      // Автоматически извлекаем и сохраняем адрес и код офиса при открытии задачи
-      await this.extractAndSaveAddress();
-      await this.extractAndSaveOfficeCode();
+      // Автоматически извлекаем и сохраняем адрес и код офиса при открытии задачи (только если включено)
+      if (this.officeDetectionEnabled) {
+        await this.extractAndSaveAddress();
+        await this.extractAndSaveOfficeCode();
+      }
       
       // Обновляем карточки на доске
       setTimeout(() => {
@@ -923,7 +954,12 @@ class JiraNotesExtension {
         const isProcessed = cardContainer.hasAttribute('data-jira-processed');
         
         // Если карточка УЖЕ обработана И элементы есть - пропускаем
-        if (isProcessed && hasStatus && hasAddress && hasCode) {
+        // Учитываем, что если автоопределение отключено, то адрес и код не проверяем
+        const requiredElementsPresent = this.officeDetectionEnabled 
+          ? (hasStatus && (hasAddress || hasCode))
+          : hasStatus;
+        
+        if (isProcessed && requiredElementsPresent) {
           return;
         }
         
@@ -951,8 +987,8 @@ class JiraNotesExtension {
           cardContainer.appendChild(statusDot);
         }
 
-        // Добавляем КОД ОФИСА (приоритетнее адреса)
-        if (this.codeCache[issueKey] && !hasCode) {
+        // Добавляем КОД ОФИСА (приоритетнее адреса) - только если автоопределение включено
+        if (this.officeDetectionEnabled && this.codeCache[issueKey] && !hasCode) {
           // Скрываем номер задачи
           const childDivs = link.querySelectorAll('div');
           childDivs.forEach(div => {
@@ -977,8 +1013,8 @@ class JiraNotesExtension {
           
           link.appendChild(codeSpan);
         }
-        // Если кода нет, добавляем адрес (как было раньше)
-        else if (this.addressCache[issueKey] && !hasAddress && !hasCode) {
+        // Если кода нет, добавляем адрес (как было раньше) - только если автоопределение включено
+        else if (this.officeDetectionEnabled && this.addressCache[issueKey] && !hasAddress && !hasCode) {
           // Скрываем номер задачи
           const childDivs = link.querySelectorAll('div');
           childDivs.forEach(div => {
