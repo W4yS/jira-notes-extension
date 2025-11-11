@@ -583,10 +583,10 @@ function detectDeviceType(fields) {
   
   if (!equipmentField || !equipmentField.value) {
     return {
-      type: 'windows',
-      name: 'Windows',
-      icon: '🪟',
-      badge: '<span style="background: linear-gradient(135deg, #0078d4 0%, #00a4ef 100%); color: white; padding: 4px 10px; border-radius: 12px; font-size: 12px; margin-left: 8px; font-weight: 600;">🪟 Windows</span>'
+      type: 'other',
+      name: 'Другое',
+      icon: '📦',
+      badge: '<span style="background: linear-gradient(135deg, #9333ea 0%, #6b21a8 100%); color: white; padding: 4px 10px; border-radius: 12px; font-size: 12px; margin-left: 8px; font-weight: 600;">📦 Другое</span>'
     };
   }
   
@@ -602,12 +602,22 @@ function detectDeviceType(fields) {
     };
   }
   
-  // Все остальное - Windows
+  // Windows ноутбуки
+  if (value.includes('windows') || value.includes('ноутбук') || value.includes('laptop')) {
+    return {
+      type: 'windows',
+      name: 'Windows',
+      icon: '🪟',
+      badge: '<span style="background: linear-gradient(135deg, #0078d4 0%, #00a4ef 100%); color: white; padding: 4px 10px; border-radius: 12px; font-size: 12px; margin-left: 8px; font-weight: 600;">🪟 Windows</span>'
+    };
+  }
+  
+  // Все остальное (периферия, телефоны, другое оборудование) - other
   return {
-    type: 'windows',
-    name: 'Windows',
-    icon: '🪟',
-    badge: '<span style="background: linear-gradient(135deg, #0078d4 0%, #00a4ef 100%); color: white; padding: 4px 10px; border-radius: 12px; font-size: 12px; margin-left: 8px; font-weight: 600;">🪟 Windows</span>'
+    type: 'other',
+    name: 'Другое',
+    icon: '📦',
+    badge: '<span style="background: linear-gradient(135deg, #9333ea 0%, #6b21a8 100%); color: white; padding: 4px 10px; border-radius: 12px; font-size: 12px; margin-left: 8px; font-weight: 600;">📦 Другое</span>'
   };
 }
 

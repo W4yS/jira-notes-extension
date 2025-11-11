@@ -1053,7 +1053,7 @@ class JiraNotesExtension {
     const equipmentField = fields.customfield_11122;
     
     if (!equipmentField || !equipmentField.value) {
-      return 'windows'; // По умолчанию Windows
+      return 'other'; // Если нет поля - это "другое"
     }
     
     const value = equipmentField.value.toLowerCase();
@@ -1063,8 +1063,13 @@ class JiraNotesExtension {
       return 'apple';
     }
     
-    // Все остальное - Windows
-    return 'windows';
+    // Проверяем на Windows ноутбуки
+    if (value.includes('windows') || value.includes('ноутбук') || value.includes('laptop')) {
+      return 'windows';
+    }
+    
+    // Все остальное (периферия, телефоны, другое оборудование) - other
+    return 'other';
   }
 
   // Сохранение заметок
@@ -1370,9 +1375,12 @@ class JiraNotesExtension {
         if (deviceType === 'apple') {
           deviceIcon.src = chrome.runtime.getURL('icons/mac_OS_128px.svg');
           deviceIcon.title = 'Apple/MacBook';
-        } else {
+        } else if (deviceType === 'windows') {
           deviceIcon.src = chrome.runtime.getURL('icons/win_128.svg');
           deviceIcon.title = 'Windows';
+        } else {
+          deviceIcon.src = chrome.runtime.getURL('icons/other.svg');
+          deviceIcon.title = 'Другое оборудование';
         }
         
         deviceIcon.setAttribute('data-issue-key', issueKey);

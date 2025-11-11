@@ -293,7 +293,7 @@
 /* Персональный статус-точка на карточке */
 .jira-personal-status {
   position: absolute !important;
-  top: 4px !important;
+  top: 6px !important;
   right: 4px !important;
   width: 14px !important;
   height: 14px !important;
@@ -303,10 +303,10 @@
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3) !important;
 }
 
-/* Иконка типа устройства (Apple/Windows) */
+/* Иконка типа устройства (Apple/Windows/Other) */
 .jira-device-icon {
   position: absolute !important;
-  top: 4px !important;
+  top: 6px !important;
   right: 28px !important;
   width: 18px !important;
   height: 18px !important;

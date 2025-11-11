@@ -41,7 +41,8 @@
         "code.json",
         "icons/mac_OS_128px.svg",
         "icons/win_128.svg",
-        "icons/win_48.svg"
+        "icons/win_48.svg",
+        "icons/other.svg"
       ],
       "matches": ["*://*.atlassian.net/*"]
     }
