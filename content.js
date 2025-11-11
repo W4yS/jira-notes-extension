@@ -585,6 +585,17 @@ class JiraNotesExtension {
 
   // Загрузка заметок и статуса для текущей задачи
   async loadNotes() {
+    // Проверяем валидность контекста расширения
+    try {
+      if (!chrome.runtime?.id) {
+        console.warn('⚠️ Extension context invalidated, skipping loadNotes');
+        return;
+      }
+    } catch (e) {
+      console.warn('⚠️ Cannot access chrome.runtime, context invalidated');
+      return;
+    }
+
     try {
       const noteKey = `note_${this.currentIssueKey}`;
       const statusKey = `status_${this.currentIssueKey}`;
@@ -617,6 +628,10 @@ class JiraNotesExtension {
         this.updateAllCards();
       }, 500);
     } catch (error) {
+      if (error.message?.includes('Extension context invalidated')) {
+        console.warn('⚠️ Extension was reloaded, please refresh the page');
+        return;
+      }
       console.error('Error loading notes:', error);
     }
   }
@@ -796,6 +811,17 @@ class JiraNotesExtension {
       return;
     }
 
+    // Проверяем валидность контекста
+    try {
+      if (!chrome.runtime?.id) {
+        console.log('⚠️ Extension context invalidated, skipping data extraction');
+        return;
+      }
+    } catch (e) {
+      console.log('⚠️ Cannot access chrome.runtime');
+      return;
+    }
+
     console.log(`📊 Extracting full issue data for ${this.currentIssueKey}...`);
 
     const issueData = {
@@ -918,6 +944,17 @@ class JiraNotesExtension {
     const textarea = document.querySelector('.jira-notes-textarea');
     if (!textarea) return;
 
+    // Проверяем валидность контекста
+    try {
+      if (!chrome.runtime?.id) {
+        console.warn('⚠️ Extension context invalidated, cannot save notes');
+        return;
+      }
+    } catch (e) {
+      console.warn('⚠️ Cannot access chrome.runtime');
+      return;
+    }
+
     const notes = textarea.value;
     const noteKey = `note_${this.currentIssueKey}`;
 
@@ -942,6 +979,10 @@ class JiraNotesExtension {
         console.log('📝 Notes saved locally for', this.currentIssueKey);
       }
     } catch (error) {
+      if (error.message?.includes('Extension context invalidated')) {
+        console.warn('⚠️ Extension was reloaded, please refresh the page');
+        return;
+      }
       console.error('Error saving notes:', error);
     }
   }
