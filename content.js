@@ -831,6 +831,27 @@ class JiraNotesExtension {
     };
 
     try {
+      // === ИЗВЛЕЧЕНИЕ ОСНОВНЫХ ПОЛЕЙ ===
+      
+      // 1. Код элемента (Issue Key)
+      issueData.fields.issueKey = {
+        label: 'Код элемента',
+        value: this.currentIssueKey
+      };
+      
+      // 2. Название заявки (Summary)
+      const summaryElement = document.querySelector('[data-testid="issue.views.issue-base.foundation.summary.heading"]');
+      if (summaryElement) {
+        const summaryText = summaryElement.textContent.trim();
+        if (summaryText) {
+          issueData.fields.summary = {
+            label: 'Название заявки',
+            value: summaryText
+          };
+          console.log(`  ✓ Summary: ${summaryText.substring(0, 50)}${summaryText.length > 50 ? '...' : ''}`);
+        }
+      }
+      
       // === ДИНАМИЧЕСКОЕ ИЗВЛЕЧЕНИЕ ВСЕХ КАСТОМНЫХ ПОЛЕЙ ===
       
       // Находим все элементы с data-testid содержащими customfield_

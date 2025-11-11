@@ -557,7 +557,11 @@ async function displayIssueData(issueKey) {
 
   const fields = data.fields || {};
   
-  // Собираем все кастомные поля и сортируем по номеру
+  // Разделяем на основные поля и кастомные
+  const mainFields = ['issueKey', 'summary'];
+  const mainFieldEntries = Object.entries(fields)
+    .filter(([key]) => mainFields.includes(key));
+  
   const customFieldEntries = Object.entries(fields)
     .filter(([key]) => key.startsWith('customfield_'))
     .sort((a, b) => {
@@ -566,13 +570,19 @@ async function displayIssueData(issueKey) {
       return numA - numB;
     });
 
-  if (customFieldEntries.length === 0) {
+  const allEntries = [...mainFieldEntries, ...customFieldEntries];
+
+  if (allEntries.length === 0) {
     fieldsGrid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #999; padding: 40px;">Нет данных для отображения</div>';
     return;
   }
 
   // Иконки по умолчанию для разных типов полей
-  const getIcon = (fieldName) => {
+  const getIcon = (fieldId, fieldName) => {
+    // Специальные иконки для основных полей
+    if (fieldId === 'issueKey') return '🔑';
+    if (fieldId === 'summary') return '📝';
+    
     const name = fieldName.toLowerCase();
     if (name.includes('дата') || name.includes('date')) return '📅';
     if (name.includes('оборудование') || name.includes('equipment')) return '💻';
@@ -587,7 +597,7 @@ async function displayIssueData(issueKey) {
     return '📌'; // По умолчанию
   };
 
-  customFieldEntries.forEach(([fieldId, fieldData]) => {
+  allEntries.forEach(([fieldId, fieldData]) => {
     const { label, value } = fieldData;
     
     if (!value) return;
@@ -597,7 +607,7 @@ async function displayIssueData(issueKey) {
 
     const fieldLabel = document.createElement('div');
     fieldLabel.className = 'field-label';
-    fieldLabel.textContent = `${getIcon(label)} ${label || fieldId}`;
+    fieldLabel.textContent = `${getIcon(fieldId, label)} ${label || fieldId}`;
 
     const fieldValue = document.createElement('div');
     fieldValue.className = 'field-value';
@@ -620,7 +630,7 @@ async function displayIssueData(issueKey) {
   // Добавляем счетчик полей
   const counter = document.createElement('div');
   counter.style.cssText = 'grid-column: 1/-1; text-align: center; color: #999; font-size: 12px; padding-top: 16px; border-top: 1px solid #e5e7eb;';
-  counter.textContent = `Всего полей: ${customFieldEntries.length}`;
+  counter.textContent = `Всего полей: ${allEntries.length} (основных: ${mainFieldEntries.length}, кастомных: ${customFieldEntries.length})`;
   fieldsGrid.appendChild(counter);
 }
 
