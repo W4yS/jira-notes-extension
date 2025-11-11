@@ -874,24 +874,108 @@ class JiraNotesExtension {
         
         // Получаем название поля из заголовка
         let fieldName = '';
-        const headingElement = document.querySelector(`[data-testid="issue-field-heading-styled-field-heading.${fieldId}"]`);
+        
+        // Сначала ищем в "Основных сведениях" (с .common.)
+        let headingElement = document.querySelector(`[data-testid="issue.views.issue-base.common.${fieldId}.label"]`);
         if (headingElement) {
-          const h3 = headingElement.querySelector('h3');
-          if (h3) {
-            fieldName = h3.textContent.trim();
+          const h2 = headingElement.querySelector('h2');
+          if (h2) {
+            fieldName = h2.textContent.trim();
+          }
+        }
+        
+        // Если не нашли, ищем обычный заголовок
+        if (!fieldName) {
+          headingElement = document.querySelector(`[data-testid="issue-field-heading-styled-field-heading.${fieldId}"]`);
+          if (headingElement) {
+            const h3 = headingElement.querySelector('h3');
+            if (h3) {
+              fieldName = h3.textContent.trim();
+            }
+          }
+        }
+        
+        // Если все еще нет названия, ищем в другом варианте заголовка
+        if (!fieldName) {
+          const h2Element = document.querySelector(`h2[data-component-selector="jira-issue-field-heading-multiline-field-heading-title"]`);
+          if (h2Element && h2Element.closest(`[data-testid*="${fieldId}"]`)) {
+            fieldName = h2Element.textContent.trim();
           }
         }
         
         // Извлекаем значение поля
         let fieldValue = '';
         
-        // 1. Попробуем найти read-view для текстовых полей
-        const readView = document.querySelector(`[data-testid*="read-view.${fieldId}"]`);
-        if (readView) {
-          fieldValue = readView.textContent.trim();
+        // 1. Для полей из "Основных сведений" - rich text поля
+        const richTextField = document.querySelector(`[data-testid="issue.views.field.rich-text.${fieldId}"]`);
+        if (richTextField) {
+          const readViewContainer = richTextField.querySelector('[data-component-selector="jira-issue-view-rich-text-inline-edit-view-container"]');
+          if (readViewContainer) {
+            fieldValue = readViewContainer.textContent.trim();
+          }
         }
         
-        // 2. Если не нашли, попробуем найти inline-edit контейнер
+        // 2. Для дат (из "Основных сведений" и др.)
+        if (!fieldValue) {
+          const dateField = document.querySelector(`[data-testid="issue.views.field.date-inline-edit.${fieldId}"]`);
+          if (dateField) {
+            const readView = dateField.querySelector('[data-testid="issue-field-inline-edit-read-view-container.ui.container"]');
+            if (readView) {
+              // Текст даты находится после кнопки
+              const buttonElement = readView.querySelector('button');
+              if (buttonElement) {
+                // Берем весь текст контейнера и удаляем текст кнопки
+                fieldValue = readView.textContent.replace(buttonElement.textContent, '').trim();
+              } else {
+                fieldValue = readView.textContent.trim();
+              }
+            }
+          }
+        }
+        
+        // 3. Для select полей (одиночный выбор)
+        if (!fieldValue) {
+          const selectWrapper = document.querySelector(`[data-testid="issue.issue-view-layout.issue-view-single-select-field.${fieldId}"]`);
+          if (selectWrapper) {
+            const readView = selectWrapper.querySelector('[data-testid="issue-field-inline-edit-read-view-container.ui.container"]');
+            if (readView) {
+              // Для select с тегами
+              const optionTag = readView.querySelector('[data-testid*="option-tag"]');
+              if (optionTag) {
+                fieldValue = optionTag.textContent.trim();
+              } else {
+                // Для обычного текста (может быть плейсхолдер)
+                const buttonElement = readView.querySelector('button');
+                if (buttonElement) {
+                  fieldValue = readView.textContent.replace(buttonElement.textContent, '').trim();
+                } else {
+                  fieldValue = readView.textContent.trim();
+                }
+              }
+            }
+          }
+        }
+        
+        // 4. Для multi-select полей
+        if (!fieldValue) {
+          const multiSelectWrapper = document.querySelector(`[data-testid="issue.views.field.select.common.select-inline-edit.${fieldId}"]`);
+          if (multiSelectWrapper) {
+            const readViewContainer = multiSelectWrapper.querySelector('[data-component-selector="jira-issue-view-select-inline-edit-read-view-container"]');
+            if (readViewContainer) {
+              fieldValue = readViewContainer.textContent.trim();
+            }
+          }
+        }
+        
+        // 5. Попробуем найти read-view для текстовых полей (общий случай)
+        if (!fieldValue) {
+          const readView = document.querySelector(`[data-testid*="read-view.${fieldId}"]`);
+          if (readView) {
+            fieldValue = readView.textContent.trim();
+          }
+        }
+        
+        // 6. Если не нашли, попробуем найти inline-edit контейнер
         if (!fieldValue) {
           const inlineEdit = document.querySelector(`[data-testid*="${fieldId}--container"]`);
           if (inlineEdit) {
@@ -899,23 +983,7 @@ class JiraNotesExtension {
           }
         }
         
-        // 3. Для select полей
-        if (!fieldValue) {
-          const selectField = document.querySelector(`[data-testid*="select-inline-edit.${fieldId}"]`);
-          if (selectField) {
-            fieldValue = selectField.textContent.trim();
-          }
-        }
-        
-        // 4. Для date полей
-        if (!fieldValue) {
-          const dateField = document.querySelector(`[data-testid*="date-inline-edit.${fieldId}"]`);
-          if (dateField) {
-            fieldValue = dateField.textContent.trim();
-          }
-        }
-        
-        // 5. Для user полей
+        // 7. Для user полей
         if (!fieldValue) {
           const userField = document.querySelector(`[data-testid*="user-field.${fieldId}"]`);
           if (userField) {
@@ -927,8 +995,18 @@ class JiraNotesExtension {
         }
         
         // Фильтруем пустые и placeholder значения
-        const placeholders = ['Нет', 'Введите текст', 'Добавьте варианты', 'Добавьте дату', 'Выбрать'];
-        if (fieldValue && !placeholders.includes(fieldValue)) {
+        const placeholders = ['Нет', 'Введите текст', 'Добавьте варианты', 'Добавьте дату', 'Выбрать', 'Редактировать'];
+        
+        // Также удаляем aria-label из значения
+        if (fieldValue) {
+          // Удаляем текст кнопок редактирования, который может попасть в значение
+          fieldValue = fieldValue.replace(/Редактировать поле «.*?»/g, '').trim();
+          fieldValue = fieldValue.replace(/Добавить.*?, edit/g, '').trim();
+          fieldValue = fieldValue.replace(/Изменить.*?, edit/g, '').trim();
+          fieldValue = fieldValue.replace(/Отредактировать поле.*?edit/g, '').trim();
+        }
+        
+        if (fieldValue && !placeholders.includes(fieldValue) && fieldName) {
           customFields.set(fieldId, {
             name: fieldName,
             value: fieldValue
