@@ -20,7 +20,8 @@ async function loadSyncService() {
     syncService = module.syncService;
     console.log('✅ Sync service loaded');
   } catch (error) {
-    console.warn('⚠️ Sync service not available:', error);
+    // Sync service опционален, игнорируем если не найден
+    console.log('ℹ️ Sync service not available (personal mode only)');
   }
 }
 

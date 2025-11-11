@@ -526,8 +526,7 @@ class JiraNotesExtension {
     try {
       // Проверяем, что контекст расширения еще валиден
       if (!chrome.runtime?.id) {
-        console.warn('⚠️ Extension context invalidated, skipping position save');
-        return;
+        return; // Тихо выходим - позиция не критична
       }
       
       await chrome.storage.local.set({
@@ -536,7 +535,7 @@ class JiraNotesExtension {
     } catch (error) {
       // Игнорируем ошибку Extension context invalidated
       if (error.message?.includes('Extension context invalidated')) {
-        console.warn('⚠️ Extension context invalidated during save');
+        return; // Тихо выходим при перезагрузке расширения
       } else {
         console.error('Error saving position:', error);
       }
@@ -588,11 +587,11 @@ class JiraNotesExtension {
     // Проверяем валидность контекста расширения
     try {
       if (!chrome.runtime?.id) {
-        console.warn('⚠️ Extension context invalidated, skipping loadNotes');
+        console.log('🔄 Расширение было обновлено. Обновите страницу (F5) для продолжения работы.');
         return;
       }
     } catch (e) {
-      console.warn('⚠️ Cannot access chrome.runtime, context invalidated');
+      console.log('🔄 Расширение было обновлено. Обновите страницу (F5) для продолжения работы.');
       return;
     }
 
@@ -629,7 +628,7 @@ class JiraNotesExtension {
       }, 500);
     } catch (error) {
       if (error.message?.includes('Extension context invalidated')) {
-        console.warn('⚠️ Extension was reloaded, please refresh the page');
+        console.log('🔄 Расширение было обновлено. Обновите страницу (F5) для продолжения работы.');
         return;
       }
       console.error('Error loading notes:', error);
@@ -814,12 +813,10 @@ class JiraNotesExtension {
     // Проверяем валидность контекста
     try {
       if (!chrome.runtime?.id) {
-        console.log('⚠️ Extension context invalidated, skipping data extraction');
-        return;
+        return; // Тихо выходим - данные будут извлечены после обновления страницы
       }
     } catch (e) {
-      console.log('⚠️ Cannot access chrome.runtime');
-      return;
+      return; // Тихо выходим
     }
 
     console.log(`📊 Extracting full issue data for ${this.currentIssueKey}...`);
@@ -1046,12 +1043,10 @@ class JiraNotesExtension {
     // Проверяем валидность контекста
     try {
       if (!chrome.runtime?.id) {
-        console.warn('⚠️ Extension context invalidated, cannot save notes');
-        return;
+        return; // Тихо выходим - заметки сохранятся после обновления
       }
     } catch (e) {
-      console.warn('⚠️ Cannot access chrome.runtime');
-      return;
+      return; // Тихо выходим
     }
 
     const notes = textarea.value;
@@ -1079,8 +1074,7 @@ class JiraNotesExtension {
       }
     } catch (error) {
       if (error.message?.includes('Extension context invalidated')) {
-        console.warn('⚠️ Extension was reloaded, please refresh the page');
-        return;
+        return; // Тихо выходим
       }
       console.error('Error saving notes:', error);
     }
@@ -1142,7 +1136,6 @@ class JiraNotesExtension {
   async updateAllCards() {
     // Проверяем, что контекст расширения еще валиден
     if (!chrome.runtime?.id) {
-      console.warn('⚠️ Extension context invalidated - extension was reloaded. Please refresh the page.');
       // Показываем уведомление пользователю один раз
       if (!this.contextInvalidatedShown) {
         this.contextInvalidatedShown = true;
@@ -1319,7 +1312,7 @@ class JiraNotesExtension {
     } catch (error) {
       // Игнорируем ошибку Extension context invalidated
       if (error.message?.includes('Extension context invalidated')) {
-        console.warn('⚠️ Extension context invalidated during update, ignoring');
+        return; // Тихо выходим
       } else {
         console.error('❌ Error updating cards:', error);
       }
