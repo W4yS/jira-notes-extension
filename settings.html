@@ -395,6 +395,95 @@
       box-shadow: 0 4px 8px rgba(0,0,0,0.3) !important;
     }
 
+    /* Стили для данных карточек */
+    .field-card {
+      background: white;
+      border: 2px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 14px;
+      transition: all 0.2s;
+    }
+
+    .field-card:hover {
+      border-color: #667eea;
+      box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
+    }
+
+    .field-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+      display: block;
+    }
+
+    .field-value {
+      font-size: 14px;
+      color: #111827;
+      word-wrap: break-word;
+      line-height: 1.5;
+    }
+
+    .field-value.empty {
+      color: #9ca3af;
+      font-style: italic;
+    }
+
+    .field-value.status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      background: #f3f4f6;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+
+    .field-value.date {
+      font-family: monospace;
+      font-size: 13px;
+    }
+
+    .attachments-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 6px;
+    }
+
+    .attachment-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      background: #f9fafb;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+
+    .attachment-icon {
+      font-size: 16px;
+    }
+
+    .attachment-name {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      background: #e0e7ff;
+      color: #4338ca;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
     /* Адаптивность */
     @media (max-width: 768px) {
       body {
@@ -426,6 +515,10 @@
       .jira-notes-status-grid {
         grid-template-columns: 1fr !important;
       }
+
+      #issueFieldsGrid {
+        grid-template-columns: 1fr !important;
+      }
     }
 
     @media (max-width: 480px) {
@@ -455,6 +548,9 @@
       </div>
       <div class="tab" data-tab="statuses">
         🎨 Статусы
+      </div>
+      <div class="tab" data-tab="issuedata">
+        📊 Данные карточек
       </div>
     </div>
 
@@ -629,6 +725,52 @@
           <button class="btn-primary" id="addStatusBtn" style="flex: 0 0 auto; padding: 10px 24px;">➕ Добавить статус</button>
           <button class="btn-secondary" id="resetDefaultsBtn" style="flex: 0 0 auto; padding: 10px 24px;">🔄 Сбросить к стандартным</button>
         </div>
+      </div>
+    </div>
+
+    <!-- Вкладка: Данные карточек -->
+    <div class="tab-content" id="issuedataTab" style="display: none;">
+      <h2 style="font-size: 18px; margin-bottom: 16px; color: #667eea;">Сохраненные данные из карточек Jira</h2>
+      
+      <div class="info-box" style="background: #e8f5e9; border-left-color: #4caf50; color: #1b5e20; margin-bottom: 20px;">
+        💾 <strong>Информация:</strong> Здесь отображаются все данные, автоматически извлеченные из карточек Jira при их просмотре. Данные хранятся локально в вашем браузере.
+      </div>
+
+      <!-- Селектор карточек -->
+      <div class="form-group" style="margin-bottom: 24px;">
+        <label>Выберите карточку для просмотра:</label>
+        <select id="issueSelector" style="width: 100%; padding: 10px 12px; border: 2px solid #e0e0e0; border-radius: 6px; font-size: 14px; background: white; cursor: pointer;">
+          <option value="">-- Выберите карточку --</option>
+        </select>
+      </div>
+
+      <!-- Контейнер для отображения данных -->
+      <div id="issueDataContainer" style="display: none;">
+        <!-- Заголовок с действиями -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <h3 style="font-size: 16px; color: #495057; margin: 0;" id="selectedIssueKey">Карточка не выбрана</h3>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn-secondary" id="exportIssueBtn" style="padding: 8px 16px; flex: unset; font-size: 13px;">📥 Экспорт JSON</button>
+            <button class="btn-secondary" id="deleteIssueBtn" style="padding: 8px 16px; flex: unset; font-size: 13px; color: #dc2626;">🗑️ Удалить</button>
+          </div>
+        </div>
+
+        <!-- Метаданные -->
+        <div style="background: #f8f9fa; padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; font-size: 13px; color: #666;">
+          <strong>Дата извлечения:</strong> <span id="extractedAt">—</span>
+        </div>
+
+        <!-- Данные карточки -->
+        <div id="issueFieldsGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px;">
+          <!-- Заполняется динамически -->
+        </div>
+      </div>
+
+      <!-- Пустое состояние -->
+      <div id="emptyState" style="text-align: center; padding: 60px 20px; color: #999;">
+        <div style="font-size: 48px; margin-bottom: 16px;">📭</div>
+        <p style="font-size: 16px; margin-bottom: 8px;">Нет сохраненных данных</p>
+        <p style="font-size: 13px;">Откройте карточку Jira, чтобы данные автоматически сохранились</p>
       </div>
     </div>
   </div>

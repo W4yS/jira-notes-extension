@@ -609,6 +609,9 @@ class JiraNotesExtension {
         await this.extractAndSaveOfficeCode();
       }
       
+      // НОВОЕ: Извлекаем и сохраняем ВСЕ данные из карточки
+      await this.extractAndSaveAllIssueData();
+      
       // Обновляем карточки на доске
       setTimeout(() => {
         this.updateAllCards();
@@ -784,6 +787,130 @@ class JiraNotesExtension {
     }
     
     console.log('❌ Office fields not found');
+  }
+
+  // Извлечение ВСЕХ полей из карточки Jira и сохранение в localStorage
+  async extractAndSaveAllIssueData() {
+    if (!this.currentIssueKey) {
+      console.log('⚠️ No issue key - skipping full data extraction');
+      return;
+    }
+
+    console.log(`📊 Extracting full issue data for ${this.currentIssueKey}...`);
+
+    const issueData = {
+      issueKey: this.currentIssueKey,
+      extractedAt: new Date().toISOString(),
+      fields: {}
+    };
+
+    try {
+      // === ДИНАМИЧЕСКОЕ ИЗВЛЕЧЕНИЕ ВСЕХ КАСТОМНЫХ ПОЛЕЙ ===
+      
+      // Находим все элементы с data-testid содержащими customfield_
+      const allElements = document.querySelectorAll('[data-testid*="customfield_"]');
+      const customFields = new Map(); // Используем Map для избежания дубликатов
+      
+      console.log(`🔍 Found ${allElements.length} elements with customfield in testid`);
+      
+      allElements.forEach(element => {
+        const testId = element.getAttribute('data-testid');
+        
+        // Извлекаем номер customfield из testid
+        const match = testId.match(/customfield_(\d+)/);
+        if (!match) return;
+        
+        const fieldId = `customfield_${match[1]}`;
+        
+        // Пропускаем, если уже обработали это поле
+        if (customFields.has(fieldId)) return;
+        
+        // Получаем название поля из заголовка
+        let fieldName = '';
+        const headingElement = document.querySelector(`[data-testid="issue-field-heading-styled-field-heading.${fieldId}"]`);
+        if (headingElement) {
+          const h3 = headingElement.querySelector('h3');
+          if (h3) {
+            fieldName = h3.textContent.trim();
+          }
+        }
+        
+        // Извлекаем значение поля
+        let fieldValue = '';
+        
+        // 1. Попробуем найти read-view для текстовых полей
+        const readView = document.querySelector(`[data-testid*="read-view.${fieldId}"]`);
+        if (readView) {
+          fieldValue = readView.textContent.trim();
+        }
+        
+        // 2. Если не нашли, попробуем найти inline-edit контейнер
+        if (!fieldValue) {
+          const inlineEdit = document.querySelector(`[data-testid*="${fieldId}--container"]`);
+          if (inlineEdit) {
+            fieldValue = inlineEdit.textContent.trim();
+          }
+        }
+        
+        // 3. Для select полей
+        if (!fieldValue) {
+          const selectField = document.querySelector(`[data-testid*="select-inline-edit.${fieldId}"]`);
+          if (selectField) {
+            fieldValue = selectField.textContent.trim();
+          }
+        }
+        
+        // 4. Для date полей
+        if (!fieldValue) {
+          const dateField = document.querySelector(`[data-testid*="date-inline-edit.${fieldId}"]`);
+          if (dateField) {
+            fieldValue = dateField.textContent.trim();
+          }
+        }
+        
+        // 5. Для user полей
+        if (!fieldValue) {
+          const userField = document.querySelector(`[data-testid*="user-field.${fieldId}"]`);
+          if (userField) {
+            const userName = userField.querySelector('span[class*="_1reo15vq"]');
+            if (userName) {
+              fieldValue = userName.textContent.trim();
+            }
+          }
+        }
+        
+        // Фильтруем пустые и placeholder значения
+        const placeholders = ['Нет', 'Введите текст', 'Добавьте варианты', 'Добавьте дату', 'Выбрать'];
+        if (fieldValue && !placeholders.includes(fieldValue)) {
+          customFields.set(fieldId, {
+            name: fieldName,
+            value: fieldValue
+          });
+          console.log(`  ✓ ${fieldId} (${fieldName}): ${fieldValue.substring(0, 50)}${fieldValue.length > 50 ? '...' : ''}`);
+        }
+      });
+      
+      // Сохраняем все найденные поля
+      customFields.forEach((data, fieldId) => {
+        issueData.fields[fieldId] = {
+          label: data.name,
+          value: data.value
+        };
+      });
+
+      // Сохраняем в localStorage
+      const dataKey = `issuedata_${this.currentIssueKey}`;
+      await chrome.storage.local.set({
+        [dataKey]: issueData
+      });
+
+      console.log(`✅ Full issue data saved for ${this.currentIssueKey}:`, customFields.size, 'custom fields');
+      return issueData;
+
+    } catch (error) {
+      console.error('❌ Error extracting issue data:', error);
+      return null;
+    }
   }
 
   // Сохранение заметок

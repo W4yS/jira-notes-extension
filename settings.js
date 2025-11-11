@@ -194,11 +194,18 @@ document.addEventListener('DOMContentLoaded', async () => {
       // Показываем нужный контент
       const syncTab = document.getElementById('syncTab');
       const statusesTab = document.getElementById('statusesTab');
+      const issuedataTab = document.getElementById('issuedataTab');
       
-      console.log('syncTab:', syncTab, 'statusesTab:', statusesTab);
+      console.log('syncTab:', syncTab, 'statusesTab:', statusesTab, 'issuedataTab:', issuedataTab);
       
       if (syncTab) syncTab.style.display = tabName === 'sync' ? 'block' : 'none';
       if (statusesTab) statusesTab.style.display = tabName === 'statuses' ? 'block' : 'none';
+      if (issuedataTab) {
+        issuedataTab.style.display = tabName === 'issuedata' ? 'block' : 'none';
+        if (tabName === 'issuedata') {
+          loadIssueDataList();
+        }
+      }
       
       currentTab = tabName;
     });
@@ -396,6 +403,51 @@ document.addEventListener('DOMContentLoaded', async () => {
       alert('✅ Статусы сброшены к стандартным!');
     }
   });
+
+  // === ДАННЫЕ КАРТОЧЕК ===
+
+  // Обработчик выбора карточки
+  document.getElementById('issueSelector')?.addEventListener('change', (e) => {
+    const issueKey = e.target.value;
+    if (issueKey) {
+      displayIssueData(issueKey);
+    } else {
+      document.getElementById('issueDataContainer').style.display = 'none';
+    }
+  });
+
+  // Экспорт данных карточки в JSON
+  document.getElementById('exportIssueBtn')?.addEventListener('click', async () => {
+    const issueKey = document.getElementById('issueSelector').value;
+    if (!issueKey) return;
+
+    const result = await chrome.storage.local.get(`issuedata_${issueKey}`);
+    const data = result[`issuedata_${issueKey}`];
+
+    if (data) {
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${issueKey}_data.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  });
+
+  // Удаление данных карточки
+  document.getElementById('deleteIssueBtn')?.addEventListener('click', async () => {
+    const issueKey = document.getElementById('issueSelector').value;
+    if (!issueKey) return;
+
+    if (confirm(`Удалить данные карточки ${issueKey}?`)) {
+      await chrome.storage.local.remove(`issuedata_${issueKey}`);
+      document.getElementById('issueDataContainer').style.display = 'none';
+      document.getElementById('issueSelector').value = '';
+      await loadIssueDataList();
+      alert('✅ Данные удалены!');
+    }
+  });
 });
 
 // Загрузка и отображение кастомных статусов
@@ -438,3 +490,137 @@ async function loadCustomStatuses() {
     });
   });
 }
+
+// === ФУНКЦИИ ДЛЯ РАБОТЫ С ДАННЫМИ КАРТОЧЕК ===
+
+// Загрузка списка всех карточек с данными
+async function loadIssueDataList() {
+  const selector = document.getElementById('issueSelector');
+  const emptyState = document.getElementById('emptyState');
+  
+  if (!selector) return;
+
+  // Получаем все ключи из localStorage
+  const allKeys = await chrome.storage.local.get(null);
+  const issueKeys = Object.keys(allKeys)
+    .filter(key => key.startsWith('issuedata_'))
+    .map(key => key.replace('issuedata_', ''))
+    .sort();
+
+  // Очищаем селектор
+  selector.innerHTML = '<option value="">-- Выберите карточку --</option>';
+
+  if (issueKeys.length === 0) {
+    emptyState.style.display = 'block';
+    document.getElementById('issueDataContainer').style.display = 'none';
+    return;
+  }
+
+  emptyState.style.display = 'none';
+
+  // Добавляем опции
+  issueKeys.forEach(key => {
+    const option = document.createElement('option');
+    option.value = key;
+    option.textContent = key;
+    selector.appendChild(option);
+  });
+}
+
+// Отображение данных выбранной карточки
+async function displayIssueData(issueKey) {
+  const container = document.getElementById('issueDataContainer');
+  const fieldsGrid = document.getElementById('issueFieldsGrid');
+  const selectedKey = document.getElementById('selectedIssueKey');
+  const extractedAt = document.getElementById('extractedAt');
+
+  if (!container || !fieldsGrid) return;
+
+  // Получаем данные
+  const result = await chrome.storage.local.get(`issuedata_${issueKey}`);
+  const data = result[`issuedata_${issueKey}`];
+
+  if (!data) {
+    container.style.display = 'none';
+    return;
+  }
+
+  // Показываем контейнер
+  container.style.display = 'block';
+
+  // Обновляем заголовок и метаданные
+  selectedKey.textContent = `Карточка: ${issueKey}`;
+  extractedAt.textContent = new Date(data.extractedAt).toLocaleString('ru-RU');
+
+  // Отображаем поля
+  fieldsGrid.innerHTML = '';
+
+  const fields = data.fields || {};
+  
+  // Собираем все кастомные поля и сортируем по номеру
+  const customFieldEntries = Object.entries(fields)
+    .filter(([key]) => key.startsWith('customfield_'))
+    .sort((a, b) => {
+      const numA = parseInt(a[0].replace('customfield_', ''));
+      const numB = parseInt(b[0].replace('customfield_', ''));
+      return numA - numB;
+    });
+
+  if (customFieldEntries.length === 0) {
+    fieldsGrid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #999; padding: 40px;">Нет данных для отображения</div>';
+    return;
+  }
+
+  // Иконки по умолчанию для разных типов полей
+  const getIcon = (fieldName) => {
+    const name = fieldName.toLowerCase();
+    if (name.includes('дата') || name.includes('date')) return '📅';
+    if (name.includes('оборудование') || name.includes('equipment')) return '💻';
+    if (name.includes('telegram') || name.includes('телеграм')) return '✈️';
+    if (name.includes('проект') || name.includes('project')) return '📊';
+    if (name.includes('отдел') || name.includes('department')) return '🏢';
+    if (name.includes('адрес') || name.includes('address')) return '📍';
+    if (name.includes('телефон') || name.includes('phone')) return '📞';
+    if (name.includes('geo') || name.includes('гео')) return '🌍';
+    if (name.includes('исполнитель') || name.includes('executor')) return '👤';
+    if (name.includes('задача') || name.includes('task')) return '📋';
+    return '📌'; // По умолчанию
+  };
+
+  customFieldEntries.forEach(([fieldId, fieldData]) => {
+    const { label, value } = fieldData;
+    
+    if (!value) return;
+
+    const fieldCard = document.createElement('div');
+    fieldCard.className = 'field-card';
+
+    const fieldLabel = document.createElement('div');
+    fieldLabel.className = 'field-label';
+    fieldLabel.textContent = `${getIcon(label)} ${label || fieldId}`;
+
+    const fieldValue = document.createElement('div');
+    fieldValue.className = 'field-value';
+    
+    // Определяем тип данных для стилизации
+    if (label && (label.includes('дата') || label.includes('Date'))) {
+      fieldValue.className = 'field-value date';
+    }
+    
+    fieldValue.textContent = value;
+
+    // Добавляем подсказку с ID поля
+    fieldCard.title = fieldId;
+
+    fieldCard.appendChild(fieldLabel);
+    fieldCard.appendChild(fieldValue);
+    fieldsGrid.appendChild(fieldCard);
+  });
+
+  // Добавляем счетчик полей
+  const counter = document.createElement('div');
+  counter.style.cssText = 'grid-column: 1/-1; text-align: center; color: #999; font-size: 12px; padding-top: 16px; border-top: 1px solid #e5e7eb;';
+  counter.textContent = `Всего полей: ${customFieldEntries.length}`;
+  fieldsGrid.appendChild(counter);
+}
+
