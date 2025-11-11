@@ -417,6 +417,51 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
+  // Экспорт ВСЕХ данных карточек в один JSON
+  document.getElementById('exportAllIssuesBtn')?.addEventListener('click', async () => {
+    // Получаем все данные из storage
+    const allData = await chrome.storage.local.get(null);
+    
+    // Фильтруем только issuedata_*
+    const allIssues = {};
+    let count = 0;
+    
+    for (const [key, value] of Object.entries(allData)) {
+      if (key.startsWith('issuedata_')) {
+        const issueKey = key.replace('issuedata_', '');
+        allIssues[issueKey] = value;
+        count++;
+      }
+    }
+    
+    if (count === 0) {
+      alert('⚠️ Нет сохраненных данных карточек для экспорта');
+      return;
+    }
+    
+    // Создаем файл с текущей датой и временем
+    const now = new Date();
+    const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, -5);
+    const filename = `jira_all_issues_${timestamp}.json`;
+    
+    // Экспортируем
+    const exportData = {
+      exportedAt: now.toISOString(),
+      totalIssues: count,
+      issues: allIssues
+    };
+    
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+    
+    alert(`✅ Экспортировано ${count} карточек в файл ${filename}`);
+  });
+
   // Экспорт данных карточки в JSON
   document.getElementById('exportIssueBtn')?.addEventListener('click', async () => {
     const issueKey = document.getElementById('issueSelector').value;

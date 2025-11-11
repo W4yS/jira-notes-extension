@@ -27,7 +27,7 @@
       border-radius: 12px;
       padding: 32px;
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
-      max-width: 1200px;
+      max-width: 1600px;
       width: 100%;
     }
 
@@ -738,7 +738,10 @@
 
       <!-- Селектор карточек -->
       <div class="form-group" style="margin-bottom: 24px;">
-        <label>Выберите карточку для просмотра:</label>
+        <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 8px;">
+          <label style="margin: 0;">Выберите карточку для просмотра:</label>
+          <button class="btn-primary" id="exportAllIssuesBtn" style="padding: 8px 16px; flex: unset; font-size: 13px;">📦 Экспортировать все карточки</button>
+        </div>
         <select id="issueSelector" style="width: 100%; padding: 10px 12px; border: 2px solid #e0e0e0; border-radius: 6px; font-size: 14px; background: white; cursor: pointer;">
           <option value="">-- Выберите карточку --</option>
         </select>
