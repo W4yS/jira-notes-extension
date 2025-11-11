@@ -564,13 +564,81 @@ async function loadIssueDataList() {
 
   emptyState.style.display = 'none';
 
-  // Добавляем опции
-  issueKeys.forEach(key => {
+  // Добавляем опции с типом устройства
+  for (const key of issueKeys) {
+    const data = allKeys[`issuedata_${key}`];
+    const deviceType = detectDeviceType(data?.fields || {});
+    
     const option = document.createElement('option');
     option.value = key;
-    option.textContent = key;
+    option.textContent = `${key} — ${deviceType.icon} ${deviceType.name}`;
     selector.appendChild(option);
-  });
+  }
+}
+
+// Определение типа устройства по данным карточки
+function detectDeviceType(fields) {
+  // Ищем поле с типом оборудования (customfield_11122)
+  const equipmentField = fields.customfield_11122;
+  
+  if (!equipmentField || !equipmentField.value) {
+    return {
+      type: 'unknown',
+      name: 'Неизвестно',
+      icon: '❓',
+      badge: '<span style="background: #gray; color: white; padding: 4px 10px; border-radius: 12px; font-size: 12px; margin-left: 8px;">❓ Неизвестно</span>'
+    };
+  }
+  
+  const value = equipmentField.value.toLowerCase();
+  
+  // Macbook
+  if (value.includes('macbook')) {
+    return {
+      type: 'macbook',
+      name: 'MacBook',
+      icon: '',
+      badge: '<span style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 4px 10px; border-radius: 12px; font-size: 12px; margin-left: 8px; font-weight: 600;"> MacBook</span>'
+    };
+  }
+  
+  // Windows ноутбук
+  if (value.includes('windows') || value.includes('lenovo') || value.includes('dell') || value.includes('hp') || value.includes('ноутбук')) {
+    return {
+      type: 'windows',
+      name: 'Windows',
+      icon: '🪟',
+      badge: '<span style="background: linear-gradient(135deg, #0078d4 0%, #00a4ef 100%); color: white; padding: 4px 10px; border-radius: 12px; font-size: 12px; margin-left: 8px; font-weight: 600;">🪟 Windows</span>'
+    };
+  }
+  
+  // Другое оборудование
+  if (value.includes('другое') || value.includes('other')) {
+    return {
+      type: 'other',
+      name: 'Другое',
+      icon: '🔧',
+      badge: '<span style="background: #6b7280; color: white; padding: 4px 10px; border-radius: 12px; font-size: 12px; margin-left: 8px;">🔧 Другое</span>'
+    };
+  }
+  
+  // Периферия
+  if (value.includes('периферия') || value.includes('peripheral') || value.includes('мышь') || value.includes('mouse') || value.includes('клавиатура') || value.includes('keyboard')) {
+    return {
+      type: 'peripheral',
+      name: 'Периферия',
+      icon: '🖱️',
+      badge: '<span style="background: #10b981; color: white; padding: 4px 10px; border-radius: 12px; font-size: 12px; margin-left: 8px;">🖱️ Периферия</span>'
+    };
+  }
+  
+  // По умолчанию - показываем значение как есть
+  return {
+    type: 'custom',
+    name: equipmentField.value,
+    icon: '💻',
+    badge: `<span style="background: #8b5cf6; color: white; padding: 4px 10px; border-radius: 12px; font-size: 12px; margin-left: 8px;">💻 ${equipmentField.value.substring(0, 20)}${equipmentField.value.length > 20 ? '...' : ''}</span>`
+  };
 }
 
 // Отображение данных выбранной карточки
@@ -594,8 +662,14 @@ async function displayIssueData(issueKey) {
   // Показываем контейнер
   container.style.display = 'block';
 
-  // Обновляем заголовок и метаданные
-  selectedKey.textContent = `Карточка: ${issueKey}`;
+  // Определяем тип устройства
+  const deviceType = detectDeviceType(data.fields);
+  
+  // Обновляем заголовок и метаданные с типом устройства
+  selectedKey.innerHTML = `
+    Карточка: ${issueKey} 
+    ${deviceType.badge}
+  `;
   extractedAt.textContent = new Date(data.extractedAt).toLocaleString('ru-RU');
 
   // Отображаем поля
