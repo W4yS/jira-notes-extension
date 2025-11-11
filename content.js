@@ -12,6 +12,7 @@ class JiraNotesExtension {
     this.statusCache = {}; // { issueKey: status }
     this.addressCache = {}; // { issueKey: address }
     this.codeCache = {}; // { issueKey: code } - кодировки офисов (ХЗ, Гоголь, и т.д.)
+    this.deviceTypeCache = {}; // { issueKey: 'apple' | 'windows' }
     this.processedCards = new Set(); // Карточки, которые уже обработаны
     this.lastUpdateTime = 0; // Время последнего обновления
     this.statusesMetadata = {}; // Кеш метаданных статусов { statusId: { name, color, emoji } }
@@ -177,7 +178,7 @@ class JiraNotesExtension {
       el.remove();
     });
     
-    // Удаляем все старые статусы, адреса и коды
+    // Удаляем все старые статусы, адреса, коды и иконки устройств
     document.querySelectorAll('.jira-personal-status').forEach(el => {
       console.log('Removing old status:', el);
       el.remove();
@@ -188,6 +189,10 @@ class JiraNotesExtension {
     });
     document.querySelectorAll('.jira-personal-code-inline').forEach(el => {
       console.log('Removing old code:', el);
+      el.remove();
+    });
+    document.querySelectorAll('.jira-device-icon').forEach(el => {
+      console.log('Removing old device icon:', el);
       el.remove();
     });
     
@@ -1020,10 +1025,17 @@ class JiraNotesExtension {
         };
       });
 
-      // Сохраняем в localStorage
+      // Определяем тип устройства (Apple или Windows)
+      const deviceType = this.detectDeviceType(issueData.fields);
+      console.log(`  🖥️ Device type detected: ${deviceType}`);
+
+      // Сохраняем в localStorage (и данные карточки, и тип устройства отдельно)
       const dataKey = `issuedata_${this.currentIssueKey}`;
+      const deviceTypeKey = `devicetype_${this.currentIssueKey}`;
+      
       await chrome.storage.local.set({
-        [dataKey]: issueData
+        [dataKey]: issueData,
+        [deviceTypeKey]: deviceType
       });
 
       console.log(`✅ Full issue data saved for ${this.currentIssueKey}:`, customFields.size, 'custom fields');
@@ -1033,6 +1045,26 @@ class JiraNotesExtension {
       console.error('❌ Error extracting issue data:', error);
       return null;
     }
+  }
+
+  // Определение типа устройства (Apple или Windows)
+  detectDeviceType(fields) {
+    // Ищем поле с типом оборудования (customfield_11122)
+    const equipmentField = fields.customfield_11122;
+    
+    if (!equipmentField || !equipmentField.value) {
+      return 'windows'; // По умолчанию Windows
+    }
+    
+    const value = equipmentField.value.toLowerCase();
+    
+    // Проверяем на Apple/Mac
+    if (value.includes('macbook') || value.includes('mac') || value.includes('apple')) {
+      return 'apple';
+    }
+    
+    // Все остальное - Windows
+    return 'windows';
   }
 
   // Сохранение заметок
@@ -1156,6 +1188,7 @@ class JiraNotesExtension {
       const newStatusCache = {};
       const newAddressCache = {};
       const newCodeCache = {};
+      const newDeviceTypeCache = {};
       
       for (const key in allData) {
         if (key.startsWith('status_')) {
@@ -1164,6 +1197,8 @@ class JiraNotesExtension {
           newAddressCache[key.replace('address_', '')] = allData[key];
         } else if (key.startsWith('code_')) {
           newCodeCache[key.replace('code_', '')] = allData[key];
+        } else if (key.startsWith('devicetype_')) {
+          newDeviceTypeCache[key.replace('devicetype_', '')] = allData[key];
         }
       }
       
@@ -1174,140 +1209,53 @@ class JiraNotesExtension {
                               !this.compareObjects(this.addressCache, newAddressCache);
       const codeChanged = Object.keys(this.codeCache).length !== Object.keys(newCodeCache).length ||
                           !this.compareObjects(this.codeCache, newCodeCache);
+      const deviceTypeChanged = Object.keys(this.deviceTypeCache).length !== Object.keys(newDeviceTypeCache).length ||
+                                !this.compareObjects(this.deviceTypeCache, newDeviceTypeCache);
       
-      if (statusChanged || addressChanged || codeChanged) {
+      if (statusChanged || addressChanged || codeChanged || deviceTypeChanged) {
         this.statusCache = newStatusCache;
         this.addressCache = newAddressCache;
         this.codeCache = newCodeCache;
+        this.deviceTypeCache = newDeviceTypeCache;
+        
+        console.log(`📊 Device types cached: ${Object.keys(newDeviceTypeCache).length}`, newDeviceTypeCache);
         
         // Если данные изменились - убираем ВСЕ старые элементы и сбрасываем флаги обработки
         document.querySelectorAll('.jira-personal-status').forEach(el => el.remove());
         document.querySelectorAll('.jira-personal-address-inline').forEach(el => el.remove());
         document.querySelectorAll('.jira-personal-code-inline').forEach(el => el.remove());
+        document.querySelectorAll('.jira-device-icon').forEach(el => el.remove());
         document.querySelectorAll('[data-jira-processed]').forEach(card => {
           card.removeAttribute('data-jira-processed');
         });
         
         console.log(`📦 Cache updated: ${Object.keys(this.statusCache).length} statuses, ${Object.keys(this.addressCache).length} addresses, ${Object.keys(this.codeCache).length} codes`);
-      } else {
-        console.log('✅ Cache unchanged, only processing new cards');
-      }
-
-      // Ищем все карточки - используем более специфичный селектор
-      const allCards = document.querySelectorAll('[data-testid="software-board.board-container.board.card-container.card-with-icc"]');
-      
-      if (allCards.length === 0) {
-        console.log('⚠️ No cards found on board');
-        return;
-      }
-      
-      console.log(`🎴 Processing ${allCards.length} cards (INSTANT MODE)`);
-      
-      let newCardsCount = 0;
-      
-      // МГНОВЕННАЯ ОБРАБОТКА: Обрабатываем ВСЕ карточки синхронно, без батчей
-      allCards.forEach(cardContainer => {
-        // Ищем ссылку с номером задачи ВНУТРИ
-        const link = cardContainer.querySelector('a[href*="/browse/"], a[href*="selectedIssue="]');
-        if (!link) return;
         
-        const href = link.href || '';
-        const issueMatch = href.match(/([A-Z]+-\d+)/);
+        // ОПТИМИЗАЦИЯ: обрабатываем только ВИДИМЫЕ карточки при скролле
+        const allCards = document.querySelectorAll('[data-testid="software-board.board-container.board.card-container.card-with-icc"]');
         
-        if (!issueMatch) return;
-        
-        const issueKey = issueMatch[1];
-        
-        // ПРОВЕРКА: есть ли уже элементы на КОНТЕЙНЕРЕ карточки
-        const hasStatus = cardContainer.querySelector('.jira-personal-status');
-        const hasAddress = link.querySelector('.jira-personal-address-inline');
-        const hasCode = link.querySelector('.jira-personal-code-inline');
-        const isProcessed = cardContainer.hasAttribute('data-jira-processed');
-        
-        // Если карточка УЖЕ обработана И элементы есть - пропускаем
-        // Учитываем, что если автоопределение отключено, то адрес и код не проверяем
-        const requiredElementsPresent = this.officeDetectionEnabled 
-          ? (hasStatus && (hasAddress || hasCode))
-          : hasStatus;
-        
-        if (isProcessed && requiredElementsPresent) {
+        if (allCards.length === 0) {
+          console.log('⚠️ No cards found on board');
           return;
         }
         
-        // Если частично обработана - докручиваем недостающее
-        if (!isProcessed) {
-          newCardsCount++;
-          cardContainer.setAttribute('data-jira-processed', 'true');
-          cardContainer.style.position = 'relative';
-        }
-
-        // Статус отображаем только на ВЕРХНЕМ КОНТЕЙНЕРЕ карточки (один раз!)
-        if (this.statusCache[issueKey] && !hasStatus) {
-          // Получаем метаданные статуса из кеша (синхронно)
-          const statusData = this.statusesMetadata[this.statusCache[issueKey]] || { 
-            name: 'Неизвестно', 
-            color: '#9ca3af', 
-            emoji: '' 
-          };
+        console.log(`🎴 Found ${allCards.length} cards, processing only visible ones`);
+        
+        let processedCount = 0;
+        allCards.forEach(cardContainer => {
+          // Проверяем видимость карточки
+          const rect = cardContainer.getBoundingClientRect();
+          const isVisible = rect.top < window.innerHeight + 100 && rect.bottom > -100;
           
-          const statusDot = document.createElement('div');
-          statusDot.className = `jira-personal-status`;
-          statusDot.style.background = statusData.color;
-          statusDot.title = `Статус: ${statusData.name}`;
-          statusDot.setAttribute('data-issue-key', issueKey);
-          cardContainer.appendChild(statusDot);
-        }
-
-        // Добавляем КОД ОФИСА (приоритетнее адреса) - только если автоопределение включено
-        if (this.officeDetectionEnabled && this.codeCache[issueKey] && !hasCode) {
-          // Скрываем номер задачи
-          const childDivs = link.querySelectorAll('div');
-          childDivs.forEach(div => {
-            if (div.textContent.includes(issueKey) && 
-                !div.classList.contains('jira-personal-code-inline') &&
-                !div.classList.contains('jira-personal-address-inline')) {
-              div.style.display = 'none';
-            }
-          });
-          
-          // Создаем элемент с кодом офиса
-          const codeSpan = document.createElement('div');
-          codeSpan.className = 'jira-personal-code-inline';
-          codeSpan.textContent = this.codeCache[issueKey];
-          codeSpan.title = `Офис: ${this.codeCache[issueKey]} (${issueKey})`;
-          
-          // Добавляем стиль для "ХЗ"
-          if (this.codeCache[issueKey] === 'ХЗ') {
-            codeSpan.style.color = '#9ca3af';
-            codeSpan.style.fontStyle = 'italic';
+          if (isVisible) {
+            this.processCard(cardContainer);
+            processedCount++;
           }
-          
-          link.appendChild(codeSpan);
-        }
-        // Если кода нет, добавляем адрес (как было раньше) - только если автоопределение включено
-        else if (this.officeDetectionEnabled && this.addressCache[issueKey] && !hasAddress && !hasCode) {
-          // Скрываем номер задачи
-          const childDivs = link.querySelectorAll('div');
-          childDivs.forEach(div => {
-            if (div.textContent.includes(issueKey) && !div.classList.contains('jira-personal-address-inline')) {
-              div.style.display = 'none';
-            }
-          });
-          
-          // Создаем адрес
-          const addressSpan = document.createElement('div');
-          addressSpan.className = 'jira-personal-address-inline';
-          addressSpan.textContent = ` ${this.addressCache[issueKey]}`;
-          addressSpan.title = `Адрес: ${this.addressCache[issueKey]} (${issueKey})`;
-          
-          link.appendChild(addressSpan);
-        }
-      });
-      
-      if (newCardsCount > 0) {
-        console.log(`✅ Processed ${newCardsCount} NEW cards (${allCards.length - newCardsCount} already done)`);
+        });
+        
+        console.log(`✅ Processed ${processedCount} visible cards out of ${allCards.length}`);
       } else {
-        console.log(`✅ All ${allCards.length} cards already processed`);
+        console.log('✅ Cache unchanged, skipping update');
       }
     } catch (error) {
       // Игнорируем ошибку Extension context invalidated
@@ -1398,7 +1346,7 @@ class JiraNotesExtension {
       cardContainer.style.position = 'relative';
       
       // Статус
-      if (this.statusCache[issueKey]) {
+      if (this.statusCache[issueKey] && !cardContainer.querySelector('.jira-personal-status')) {
         const statusData = this.statusesMetadata[this.statusCache[issueKey]] || { 
           name: 'Неизвестно', 
           color: '#9ca3af', 
@@ -1412,9 +1360,27 @@ class JiraNotesExtension {
         statusDot.setAttribute('data-issue-key', issueKey);
         cardContainer.appendChild(statusDot);
       }
+
+      // Иконка устройства
+      if (this.deviceTypeCache[issueKey] && !cardContainer.querySelector('.jira-device-icon')) {
+        const deviceType = this.deviceTypeCache[issueKey];
+        const deviceIcon = document.createElement('img');
+        deviceIcon.className = 'jira-device-icon';
+        
+        if (deviceType === 'apple') {
+          deviceIcon.src = chrome.runtime.getURL('icons/mac_OS_128px.svg');
+          deviceIcon.title = 'Apple/MacBook';
+        } else {
+          deviceIcon.src = chrome.runtime.getURL('icons/win_128.svg');
+          deviceIcon.title = 'Windows';
+        }
+        
+        deviceIcon.setAttribute('data-issue-key', issueKey);
+        cardContainer.appendChild(deviceIcon);
+      }
       
       // Код офиса
-      if (this.officeDetectionEnabled && this.codeCache[issueKey]) {
+      if (this.officeDetectionEnabled && this.codeCache[issueKey] && !link.querySelector('.jira-personal-code-inline')) {
         const childDivs = link.querySelectorAll('div');
         childDivs.forEach(div => {
           if (div.textContent.includes(issueKey) && 
@@ -1437,7 +1403,7 @@ class JiraNotesExtension {
         link.appendChild(codeSpan);
       }
       // Адрес (если нет кода)
-      else if (this.officeDetectionEnabled && this.addressCache[issueKey]) {
+      else if (this.officeDetectionEnabled && this.addressCache[issueKey] && !link.querySelector('.jira-personal-address-inline')) {
         const childDivs = link.querySelectorAll('div');
         childDivs.forEach(div => {
           if (div.textContent.includes(issueKey) && !div.classList.contains('jira-personal-address-inline')) {

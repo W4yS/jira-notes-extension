@@ -37,7 +37,12 @@
   "options_page": "settings.html",
   "web_accessible_resources": [
     {
-      "resources": ["code.json"],
+      "resources": [
+        "code.json",
+        "icons/mac_OS_128px.svg",
+        "icons/win_128.svg",
+        "icons/win_48.svg"
+      ],
       "matches": ["*://*.atlassian.net/*"]
     }
   ]
