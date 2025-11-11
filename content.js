@@ -171,6 +171,12 @@ class JiraNotesExtension {
   cleanupOldElements() {
     console.log('🧹 Cleaning up old elements...');
     
+    // Удаляем все старые панели заметок
+    document.querySelectorAll('[data-jira-notes-panel="true"]').forEach(el => {
+      console.log('Removing old notes panel:', el);
+      el.remove();
+    });
+    
     // Удаляем все старые статусы, адреса и коды
     document.querySelectorAll('.jira-personal-status').forEach(el => {
       console.log('Removing old status:', el);
@@ -260,14 +266,8 @@ class JiraNotesExtension {
     // Проверяем, не существует ли уже панель
     const existingPanel = document.querySelector('[data-jira-notes-panel="true"]');
     if (existingPanel) {
-      console.log('♻️ Panel already exists, updating...');
-      const title = existingPanel.querySelector('.jira-notes-title');
-      if (title) {
-        title.textContent = this.currentIssueKey;
-      }
-      existingPanel.style.display = 'block';
-      await this.loadNotes();
-      return;
+      console.log('♻️ Removing old panel before creating new one...');
+      existingPanel.remove();
     }
 
     // Ждем загрузки бокового окна Jira
