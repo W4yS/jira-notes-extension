@@ -3,788 +3,200 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Настройки синхронизации</title>
-  <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-      padding: 40px 20px;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      min-height: 100vh;
-      color: #333;
-      display: flex;
-      justify-content: center;
-      align-items: flex-start;
-    }
-
-    .container {
-      background: white;
-      border-radius: 12px;
-      padding: 32px;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
-      max-width: 1600px;
-      width: 100%;
-    }
-
-    h1 {
-      font-size: 28px;
-      margin-bottom: 8px;
-      color: #667eea;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-
-    .subtitle {
-      color: #666;
-      margin-bottom: 28px;
-      font-size: 14px;
-    }
-
-    .mode-selector {
-      display: flex;
-      gap: 12px;
-      margin-bottom: 24px;
-    }
-
-    .mode-button {
-      flex: 1;
-      padding: 16px;
-      border: 2px solid #e0e0e0;
-      border-radius: 8px;
-      background: white;
-      cursor: pointer;
-      transition: all 0.2s;
-      text-align: center;
-    }
-
-    .mode-button:hover {
-      border-color: #667eea;
-      background: #f5f7ff;
-    }
-
-    .mode-button.active {
-      border-color: #667eea;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-    }
-
-    .mode-icon {
-      font-size: 32px;
-      margin-bottom: 8px;
-    }
-
-    .mode-title {
-      font-weight: 600;
-      margin-bottom: 4px;
-    }
-
-    .mode-desc {
-      font-size: 12px;
-      opacity: 0.8;
-    }
-
-    .sync-settings {
-      display: none;
-      animation: fadeIn 0.3s;
-    }
-
-    .sync-settings.visible {
-      display: block;
-    }
-
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(-10px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-
-    .form-group {
-      margin-bottom: 16px;
-    }
-
-    label {
-      display: block;
-      margin-bottom: 6px;
-      font-weight: 500;
-      font-size: 14px;
-      color: #333;
-    }
-
-    .label-hint {
-      font-weight: 400;
-      color: #666;
-      font-size: 12px;
-    }
-
-    input[type="text"],
-    input[type="email"] {
-      width: 100%;
-      padding: 10px 12px;
-      border: 2px solid #e0e0e0;
-      border-radius: 6px;
-      font-size: 14px;
-      transition: border-color 0.2s;
-    }
-
-    input:focus {
-      outline: none;
-      border-color: #667eea;
-    }
-
-    .color-selector {
-      display: grid;
-      grid-template-columns: repeat(8, 1fr);
-      gap: 8px;
-      margin-top: 8px;
-    }
-
-    .color-option {
-      width: 40px;
-      height: 40px;
-      border-radius: 50%;
-      border: 3px solid transparent;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-
-    .color-option:hover {
-      transform: scale(1.1);
-    }
-
-    .color-option.selected {
-      border-color: #333;
-      box-shadow: 0 0 0 2px white, 0 0 0 4px #667eea;
-    }
-
-    .button-group {
-      display: flex;
-      gap: 12px;
-      margin-top: 24px;
-    }
-
-    button {
-      flex: 1;
-      padding: 12px 20px;
-      border: none;
-      border-radius: 6px;
-      font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-
-    .btn-primary {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-    }
-
-    .btn-primary:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-    }
-
-    .btn-secondary {
-      background: #f5f5f5;
-      color: #333;
-    }
-
-    .btn-secondary:hover {
-      background: #e0e0e0;
-    }
-
-    .status-indicator {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 12px;
-      border-radius: 6px;
-      margin-top: 16px;
-      font-size: 14px;
-    }
-
-    .status-indicator.online {
-      background: #e8f5e9;
-      color: #2e7d32;
-    }
-
-    .status-indicator.offline {
-      background: #ffebee;
-      color: #c62828;
-    }
-
-    .status-dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      animation: pulse 2s infinite;
-    }
-
-    .status-dot.online {
-      background: #4caf50;
-    }
-
-    .status-dot.offline {
-      background: #f44336;
-    }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.5; }
-    }
-
-    .info-box {
-      background: #e3f2fd;
-      border-left: 4px solid #2196f3;
-      padding: 12px;
-      border-radius: 4px;
-      margin-top: 16px;
-      font-size: 13px;
-      color: #0d47a1;
-    }
-
-    .team-members {
-      margin-top: 16px;
-    }
-
-    .member {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 8px;
-      margin-bottom: 8px;
-      background: #f5f5f5;
-      border-radius: 6px;
-    }
-
-    .member-color {
-      width: 32px;
-      height: 32px;
-      border-radius: 50%;
-      border: 2px solid white;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-
-    .member-info {
-      flex: 1;
-    }
-
-    .member-name {
-      font-weight: 600;
-      font-size: 14px;
-    }
-
-    .member-email {
-      font-size: 12px;
-      color: #666;
-    }
-
-    .tabs {
-      display: flex;
-      gap: 12px;
-      margin-bottom: 24px;
-      border-bottom: 2px solid #e0e0e0;
-    }
-
-    .tab {
-      padding: 12px 20px;
-      cursor: pointer;
-      font-weight: 600;
-      border-bottom: 3px solid transparent;
-      margin-bottom: -2px;
-      transition: all 0.2s;
-      color: #666;
-      user-select: none;
-    }
-
-    .tab:hover {
-      color: #667eea;
-      background: rgba(102, 126, 234, 0.05);
-    }
-
-    .tab.active {
-      color: #667eea !important;
-      border-bottom-color: #667eea !important;
-    }
-
-    .status-item {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 12px 16px;
-      background: white;
-      border: 2px solid #e5e7eb;
-      border-radius: 8px;
-      transition: all 0.2s;
-    }
-
-    .status-item:hover {
-      border-color: #667eea;
-      box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
-    }
-
-    .status-item.default {
-      background: #f9fafb;
-    }
-
-    .status-item-left {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-
-    .status-item-emoji {
-      font-size: 20px;
-    }
-
-    .status-item-dot {
-      width: 14px;
-      height: 14px;
-      border-radius: 50%;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-    }
-
-    .status-item-name {
-      font-weight: 600;
-      font-size: 14px;
-    }
-
-    .status-item-badge {
-      font-size: 11px;
-      padding: 2px 8px;
-      background: #e5e7eb;
-      border-radius: 4px;
-      color: #6b7280;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-
-    .status-item-actions {
-      display: flex;
-      gap: 8px;
-    }
-
-    .status-item-actions button {
-      padding: 6px 12px;
-      font-size: 12px;
-      border-radius: 4px;
-      border: 1px solid #e5e7eb;
-      background: white;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-
-    .status-item-actions button:hover {
-      background: #f3f4f6;
-      border-color: #d1d5db;
-    }
-
-    .status-item-actions button.delete:hover {
-      background: #fee;
-      border-color: #fcc;
-      color: #dc2626;
-    }
-
-    .color-preset:hover {
-      transform: scale(1.15);
-      box-shadow: 0 4px 8px rgba(0,0,0,0.3) !important;
-    }
-
-    /* Стили для данных карточек */
-    .field-card {
-      background: white;
-      border: 2px solid #e5e7eb;
-      border-radius: 8px;
-      padding: 14px;
-      transition: all 0.2s;
-    }
-
-    .field-card:hover {
-      border-color: #667eea;
-      box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
-    }
-
-    .field-label {
-      font-size: 12px;
-      font-weight: 600;
-      color: #6b7280;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-bottom: 6px;
-      display: block;
-    }
-
-    .field-value {
-      font-size: 14px;
-      color: #111827;
-      word-wrap: break-word;
-      line-height: 1.5;
-    }
-
-    .field-value.empty {
-      color: #9ca3af;
-      font-style: italic;
-    }
-
-    .field-value.status {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 4px 10px;
-      background: #f3f4f6;
-      border-radius: 4px;
-      font-weight: 600;
-    }
-
-    .field-value.date {
-      font-family: monospace;
-      font-size: 13px;
-    }
-
-    .attachments-list {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      margin-top: 6px;
-    }
-
-    .attachment-item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 10px;
-      background: #f9fafb;
-      border-radius: 4px;
-      font-size: 13px;
-    }
-
-    .attachment-icon {
-      font-size: 16px;
-    }
-
-    .attachment-name {
-      flex: 1;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .badge {
-      display: inline-block;
-      padding: 2px 8px;
-      background: #e0e7ff;
-      color: #4338ca;
-      border-radius: 4px;
-      font-size: 11px;
-      font-weight: 600;
-    }
-
-    /* Адаптивность */
-    @media (max-width: 768px) {
-      body {
-        padding: 20px 12px;
-      }
-
-      .container {
-        padding: 24px 20px;
-        max-width: 100%;
-      }
-
-      h1 {
-        font-size: 24px;
-      }
-
-      .tabs {
-        gap: 8px !important;
-      }
-
-      .tab {
-        padding: 10px 14px !important;
-        font-size: 14px;
-      }
-
-      .mode-selector {
-        flex-direction: column;
-      }
-
-      .jira-notes-status-grid {
-        grid-template-columns: 1fr !important;
-      }
-
-      #issueFieldsGrid {
-        grid-template-columns: 1fr !important;
-      }
-    }
-
-    @media (max-width: 480px) {
-      .container {
-        padding: 20px 16px;
-      }
-
-      h1 {
-        font-size: 22px;
-      }
-
-      .color-selector {
-        grid-template-columns: repeat(4, 1fr) !important;
-      }
-    }
-  </style>
+  <title>Настройки Jira Notes</title>
+  <link rel="stylesheet" href="settings.css">
 </head>
 <body>
+
   <div class="container">
-    <h1>⚙️ Настройки расширения</h1>
-    <p class="subtitle">Настройте режим работы и кастомные статусы</p>
+    <header class="page-header">
+      <h1>Настройки</h1>
+      <p class="subtitle">Управление режимом работы, статусами и данными расширения Jira Notes.</p>
+    </header>
 
-    <!-- Табы -->
-    <div class="tabs">
-      <div class="tab active" data-tab="sync">
-        🔄 Синхронизация
-      </div>
-      <div class="tab" data-tab="statuses">
-        🎨 Статусы
-      </div>
-      <div class="tab" data-tab="issuedata">
-        📊 Данные карточек
-      </div>
+    <div class="nav-tabs">
+      <button class="nav-tab active" data-tab="sync">Синхронизация</button>
+      <button class="nav-tab" data-tab="statuses">Статусы</button>
+      <button class="nav-tab" data-tab="issuedata">Данные</button>
     </div>
 
-    <!-- Вкладка: Синхронизация -->
-    <div class="tab-content" id="syncTab">
-    <h2 style="font-size: 18px; margin-bottom: 16px; color: #667eea;">Режим работы</h2>
-
-    <!-- Переключатель автоопределения офисов -->
-    <div style="background: #f8f9fa; padding: 16px; border-radius: 8px; margin-bottom: 24px; border: 2px solid #e0e0e0;">
-      <label style="display: flex; align-items: center; gap: 12px; cursor: pointer; user-select: none;">
-        <input type="checkbox" id="officeDetectionToggle" style="width: 20px; height: 20px; cursor: pointer; accent-color: #667eea;" />
-        <div style="flex: 1;">
-          <div style="font-weight: 600; font-size: 15px; margin-bottom: 4px;">🏢 Автоопределение офисов</div>
-          <div style="font-size: 13px; color: #666; line-height: 1.4;">
-            Включает извлечение и отображение кодировок офисов на карточках Jira (Гоголь, Пушкин и т.д.)
+    <!-- Tab: Синхронизация -->
+    <div class="tab-content active" id="syncTab">
+      <div class="box">
+        <div class="box-header">
+          <h2>Режим работы</h2>
+        </div>
+        <div class="box-body">
+          <div class="form-checkbox">
+            <input type="checkbox" id="officeDetectionToggle" checked>
+            <label for="officeDetectionToggle">
+              <div>Автоопределение офисов</div>
+              <div class="note">Включает извлечение и отображение кодов офисов (Гоголь, Пушкин и т.д.) на карточках Jira.</div>
+            </label>
           </div>
         </div>
-      </label>
-    </div>
-
-    <!-- Выбор режима -->
-    <div class="mode-selector">
-      <div class="mode-button active" data-mode="personal">
-        <div class="mode-icon">👤</div>
-        <div class="mode-title">Личный</div>
-        <div class="mode-desc">Заметки видны только вам</div>
-      </div>
-      <div class="mode-button" data-mode="team">
-        <div class="mode-icon">👥</div>
-        <div class="mode-title">Командный</div>
-        <div class="mode-desc">Синхронизация с командой</div>
-      </div>
-    </div>
-
-    <!-- Настройки синхронизации (показываются только в командном режиме) -->
-    <div class="sync-settings" id="syncSettings">
-      <div class="form-group">
-        <label>
-          Team ID
-          <span class="label-hint">(уникальный идентификатор вашей команды)</span>
-        </label>
-        <input type="text" id="teamId" placeholder="например: support-team-01" />
-      </div>
-
-      <div class="form-group">
-        <label>
-          Ваш Email
-          <span class="label-hint">(для идентификации в команде)</span>
-        </label>
-        <input type="email" id="userEmail" placeholder="your.name@company.com" />
-      </div>
-
-      <div class="form-group">
-        <label>
-          Ваше имя
-          <span class="label-hint">(будет видно другим участникам)</span>
-        </label>
-        <input type="text" id="userName" placeholder="Иван Петров" />
-      </div>
-
-      <div class="form-group">
-        <label>Ваш цвет (для индикации изменений)</label>
-        <div class="color-selector" id="colorSelector">
-          <div class="color-option selected" data-color="#667eea" style="background: #667eea;"></div>
-          <div class="color-option" data-color="#764ba2" style="background: #764ba2;"></div>
-          <div class="color-option" data-color="#f093fb" style="background: #f093fb;"></div>
-          <div class="color-option" data-color="#4facfe" style="background: #4facfe;"></div>
-          <div class="color-option" data-color="#43e97b" style="background: #43e97b;"></div>
-          <div class="color-option" data-color="#fa709a" style="background: #fa709a;"></div>
-          <div class="color-option" data-color="#f6d365" style="background: #f6d365;"></div>
-          <div class="color-option" data-color="#fda085" style="background: #fda085;"></div>
-          <div class="color-option" data-color="#a8edea" style="background: #a8edea;"></div>
-          <div class="color-option" data-color="#fed6e3" style="background: #fed6e3;"></div>
-          <div class="color-option" data-color="#c471f5" style="background: #c471f5;"></div>
-          <div class="color-option" data-color="#ff6b6b" style="background: #ff6b6b;"></div>
-        </div>
-      </div>
-
-      <div class="info-box">
-        💡 <strong>Совет:</strong> Согласуйте Team ID с вашей командой. Все участники должны использовать одинаковый Team ID для синхронизации.
-      </div>
-
-      <div class="button-group">
-        <button class="btn-primary" id="connectBtn">🔗 Подключиться</button>
-        <button class="btn-secondary" id="testBtn">🧪 Тест соединения</button>
-      </div>
-
-      <!-- Статус подключения -->
-      <div class="status-indicator offline" id="statusIndicator" style="display: none;">
-        <div class="status-dot offline"></div>
-        <span id="statusText">Отключено</span>
-      </div>
-
-      <!-- Участники команды -->
-      <div class="team-members" id="teamMembers" style="display: none;">
-        <label>Участники команды:</label>
-        <div id="membersList"></div>
-      </div>
-    </div>
-
-    <!-- Кнопка сохранения для личного режима -->
-    <div class="button-group" id="personalButtons" style="display: none;">
-      <button class="btn-primary" id="savePersonalBtn">💾 Сохранить</button>
-    </div>
-    </div>
-
-    <!-- Вкладка: Кастомные статусы -->
-    <div class="tab-content" id="statusesTab" style="display: none;">
-      <h2 style="font-size: 18px; margin-bottom: 16px; color: #667eea;">Управление статусами</h2>
-      
-      <div class="info-box" style="background: #fff3cd; border-left-color: #ffc107; color: #856404; margin-bottom: 20px;">
-        💡 <strong>Подсказка:</strong> Создавайте свои статусы с любыми эмодзи и цветами. По умолчанию доступны: 🔴 Проблема, 🟡 В процессе, 🟣 В фокусе, 🟢 Готово.
-      </div>
-
-      <!-- Список существующих статусов -->
-      <div style="margin-bottom: 24px;">
-        <label style="margin-bottom: 12px; display: block; font-size: 14px; font-weight: 600;">Текущие статусы:</label>
-        <div id="statusesList" style="display: flex; flex-direction: column; gap: 10px;">
-          <!-- Заполняется динамически -->
-        </div>
-      </div>
-
-      <!-- Форма добавления нового статуса -->
-      <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; border: 2px dashed #dee2e6;">
-        <h3 style="font-size: 16px; margin-bottom: 16px; color: #495057;">➕ Добавить новый статус</h3>
-        
-        <div class="form-group">
-          <label>Название статуса</label>
-          <input type="text" id="newStatusName" placeholder="например: Ожидает ответа" maxlength="30" />
-        </div>
-
-        <div class="form-group">
-          <label>Эмодзи (необязательно)</label>
-          <div style="display: flex; gap: 8px; align-items: center;">
-            <input type="text" id="newStatusEmoji" placeholder="🔵" maxlength="2" style="width: 80px; font-size: 24px; text-align: center;" />
-            <span style="font-size: 12px; color: #666;">Вставьте любой эмодзи</span>
+        <div class="box-footer" style="display: flex; gap: 16px;">
+          <div class="mode-button" data-mode="personal">
+            <input type="radio" name="syncMode" id="modePersonal" value="personal" checked>
+            <label for="modePersonal">
+              <strong>Личный режим</strong>
+              <div class="note">Все заметки и статусы хранятся только в вашем браузере.</div>
+            </label>
           </div>
-          <div style="margin-top: 8px; font-size: 12px; color: #666;">
-            Популярные: 🔵 🟠 🟤 ⚫ ⚪ 🔷 🔶 ⭐ 🔥 ⚡ 💎 🎯 ⏰ ✅ ❌ 🚀 🎉 💡
+          <div class="mode-button" data-mode="team">
+            <input type="radio" name="syncMode" id="modeTeam" value="team">
+            <label for="modeTeam">
+              <strong>Командный режим</strong>
+              <div class="note">Синхронизация заметок и статусов с командой в реальном времени.</div>
+            </label>
           </div>
         </div>
+      </div>
 
-        <div class="form-group">
-          <label>Цвет статуса</label>
-          <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
-            <input type="color" id="newStatusColor" value="#3b82f6" style="width: 60px; height: 40px; border: 2px solid #e0e0e0; border-radius: 6px; cursor: pointer;" />
-            <input type="text" id="newStatusColorHex" value="#3b82f6" placeholder="#3b82f6" maxlength="7" style="width: 100px; font-family: monospace;" />
-            <span style="font-size: 12px; color: #666;">или введите HEX код</span>
+      <div id="syncSettings" style="display: none;">
+        <div class="box">
+          <div class="box-header">
+            <h3>Настройки командной синхронизации</h3>
           </div>
-          <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
-            <button class="color-preset" data-color="#ef4444" style="width: 32px; height: 32px; border-radius: 50%; background: #ef4444; border: 2px solid #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.2); cursor: pointer;"></button>
-            <button class="color-preset" data-color="#f59e0b" style="width: 32px; height: 32px; border-radius: 50%; background: #f59e0b; border: 2px solid #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.2); cursor: pointer;"></button>
-            <button class="color-preset" data-color="#eab308" style="width: 32px; height: 32px; border-radius: 50%; background: #eab308; border: 2px solid #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.2); cursor: pointer;"></button>
-            <button class="color-preset" data-color="#22c55e" style="width: 32px; height: 32px; border-radius: 50%; background: #22c55e; border: 2px solid #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.2); cursor: pointer;"></button>
-            <button class="color-preset" data-color="#3b82f6" style="width: 32px; height: 32px; border-radius: 50%; background: #3b82f6; border: 2px solid #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.2); cursor: pointer;"></button>
-            <button class="color-preset" data-color="#a855f7" style="width: 32px; height: 32px; border-radius: 50%; background: #a855f7; border: 2px solid #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.2); cursor: pointer;"></button>
-            <button class="color-preset" data-color="#ec4899" style="width: 32px; height: 32px; border-radius: 50%; background: #ec4899; border: 2px solid #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.2); cursor: pointer;"></button>
-            <button class="color-preset" data-color="#64748b" style="width: 32px; height: 32px; border-radius: 50%; background: #64748b; border: 2px solid #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.2); cursor: pointer;"></button>
+          <div class="box-body">
+            <div class="form-group">
+              <label for="teamId">Team ID</label>
+              <input type="text" id="teamId" class="form-control" placeholder="например: support-team-01">
+              <p class="note">Уникальный идентификатор вашей команды. Согласуйте его со всеми участниками.</p>
+            </div>
+            <div class="form-group">
+              <label for="userEmail">Ваш Email</label>
+              <input type="email" id="userEmail" class="form-control" placeholder="your.name@company.com">
+              <p class="note">Используется для вашей идентификации в команде.</p>
+            </div>
+            <div class="form-group">
+              <label for="userName">Ваше имя</label>
+              <input type="text" id="userName" class="form-control" placeholder="Иван Петров">
+              <p class="note">Будет видно другим участникам команды.</p>
+            </div>
+            <div class="form-group">
+              <label>Ваш цвет</label>
+              <div class="color-selector" id="colorSelector">
+                <!-- Colors will be injected by JS -->
+              </div>
+              <p class="note">Этот цвет будет помечать ваши изменения для других.</p>
+            </div>
+          </div>
+          <div class="box-footer" style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <button class="btn btn-primary" id="connectBtn">Подключиться</button>
+              <button class="btn btn-secondary" id="testBtn">Тест</button>
+            </div>
+            <div id="statusIndicator" class="status-indicator offline" style="display: none;">
+              <span id="statusText">Отключено</span>
+            </div>
           </div>
         </div>
-
-        <div style="margin-top: 16px; padding: 12px; background: white; border-radius: 6px; border: 1px solid #e0e0e0;">
-          <label style="font-size: 12px; color: #666; margin-bottom: 8px; display: block;">Предпросмотр:</label>
-          <div id="statusPreview" style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 6px; background: #f3f4f6; border: 2px solid #e5e7eb;">
-            <span id="previewEmoji" style="font-size: 16px;">🔵</span>
-            <span id="previewDot" style="width: 12px; height: 12px; border-radius: 50%; background: #3b82f6;"></span>
-            <span id="previewName" style="font-weight: 600; font-size: 14px;">Новый статус</span>
+        <div class="box" id="teamMembersBox" style="display: none;">
+          <div class="box-header">
+            <h3>Участники команды</h3>
           </div>
-        </div>
-
-        <div class="button-group" style="margin-top: 16px;">
-          <button class="btn-primary" id="addStatusBtn" style="flex: 0 0 auto; padding: 10px 24px;">➕ Добавить статус</button>
-          <button class="btn-secondary" id="resetDefaultsBtn" style="flex: 0 0 auto; padding: 10px 24px;">🔄 Сбросить к стандартным</button>
+          <div class="box-body" id="membersList">
+            <!-- Team members will be injected by JS -->
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- Вкладка: Данные карточек -->
-    <div class="tab-content" id="issuedataTab" style="display: none;">
-      <h2 style="font-size: 18px; margin-bottom: 16px; color: #667eea;">Сохраненные данные из карточек Jira</h2>
-      
-      <div class="info-box" style="background: #e8f5e9; border-left-color: #4caf50; color: #1b5e20; margin-bottom: 20px;">
-        💾 <strong>Информация:</strong> Здесь отображаются все данные, автоматически извлеченные из карточек Jira при их просмотре. Данные хранятся локально в вашем браузере.
-      </div>
-
-      <!-- Селектор карточек -->
-      <div class="form-group" style="margin-bottom: 24px;">
-        <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 8px;">
-          <label style="margin: 0;">Выберите карточку для просмотра:</label>
-          <div style="display: flex; gap: 8px;">
-            <button class="btn-primary" id="exportAllIssuesBtn" style="padding: 8px 16px; flex: unset; font-size: 13px;">📦 Экспортировать все карточки</button>
-            <button class="btn-secondary" id="deleteAllIssuesBtn" style="padding: 8px 16px; flex: unset; font-size: 13px; color: #dc2626; border-color: #dc2626;">🗑️ Удалить все карточки</button>
+    <!-- Tab: Статусы -->
+    <div class="tab-content" id="statusesTab">
+      <div class="two-column-layout">
+        <div class="box">
+          <div class="box-header">
+            <h2>Управление статусами</h2>
+          </div>
+          <div class="box-body">
+            <p class="note" style="margin-bottom: 16px;">Вы можете удалять любые статусы. Кнопка "Сбросить" вернет стандартный набор.</p>
+            <div class="status-list" id="statusesList">
+              <!-- Statuses will be injected by JS -->
+            </div>
+          </div>
+          <div class="box-footer" style="display: flex; justify-content: flex-end; gap: 8px;">
+             <button class="btn btn-secondary" id="resetDefaultsBtn">Сбросить к стандартным</button>
+             <button class="btn btn-danger" id="deleteAllStatusesBtn">Удалить все</button>
           </div>
         </div>
-        <select id="issueSelector" style="width: 100%; padding: 10px 12px; border: 2px solid #e0e0e0; border-radius: 6px; font-size: 14px; background: white; cursor: pointer;">
-          <option value="">-- Выберите карточку --</option>
-        </select>
-      </div>
-
-      <!-- Контейнер для отображения данных -->
-      <div id="issueDataContainer" style="display: none;">
-        <!-- Заголовок с действиями -->
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <h3 style="font-size: 16px; color: #495057; margin: 0;" id="selectedIssueKey">Карточка не выбрана</h3>
-          <div style="display: flex; gap: 8px;">
-            <button class="btn-secondary" id="exportIssueBtn" style="padding: 8px 16px; flex: unset; font-size: 13px;">📥 Экспорт JSON</button>
-            <button class="btn-secondary" id="deleteIssueBtn" style="padding: 8px 16px; flex: unset; font-size: 13px; color: #dc2626;">🗑️ Удалить</button>
+        <div class="box">
+          <div class="box-header">
+            <h3>Добавить новый статус</h3>
+          </div>
+          <div class="box-body">
+            <div class="form-group">
+              <label for="newStatusName">Название статуса</label>
+              <input type="text" id="newStatusName" class="form-control" placeholder="например: Ожидает ответа" maxlength="30">
+            </div>
+            <div class="form-group">
+              <label for="newStatusEmoji">Эмодзи (необязательно)</label>
+              <input type="text" id="newStatusEmoji" class="form-control" placeholder="🔵" maxlength="2" style="width: 60px;">
+            </div>
+            <div class="form-group">
+              <label for="newStatusColor">Цвет статуса</label>
+              <input type="color" id="newStatusColor" value="#3b82f6">
+            </div>
+            <div class="form-group">
+              <label>Предпросмотр</label>
+              <div id="statusPreview" class="status-item-preview">
+                <span id="previewEmoji" style="font-size: 16px;"></span>
+                <div id="previewDot" class="status-dot"></div>
+                <span id="previewName"></span>
+              </div>
+            </div>
+          </div>
+          <div class="box-footer" style="text-align: right;">
+            <button class="btn btn-primary" id="addStatusBtn">Добавить статус</button>
           </div>
         </div>
-
-        <!-- Метаданные -->
-        <div style="background: #f8f9fa; padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; font-size: 13px; color: #666;">
-          <strong>Дата извлечения:</strong> <span id="extractedAt">—</span>
-        </div>
-
-        <!-- Данные карточки -->
-        <div id="issueFieldsGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px;">
-          <!-- Заполняется динамически -->
-        </div>
-      </div>
-
-      <!-- Пустое состояние -->
-      <div id="emptyState" style="text-align: center; padding: 60px 20px; color: #999;">
-        <div style="font-size: 48px; margin-bottom: 16px;">📭</div>
-        <p style="font-size: 16px; margin-bottom: 8px;">Нет сохраненных данных</p>
-        <p style="font-size: 13px;">Откройте карточку Jira, чтобы данные автоматически сохранились</p>
       </div>
     </div>
+
+    <!-- Tab: Данные -->
+    <div class="tab-content" id="issuedataTab">
+       <div class="two-column-layout data-layout">
+        <div class="box">
+          <div class="box-header">
+            <h2>Сохраненные данные</h2>
+          </div>
+          <div class="box-body">
+            <p class="note" style="margin-bottom: 16px;">Здесь отображаются все данные, автоматически извлеченные из карточек Jira. Они хранятся локально в вашем браузере.</p>
+            <div class="form-group">
+              <label for="issueSelector">Выберите карточку для просмотра</label>
+              <select id="issueSelector" class="form-control">
+                <option value="">-- Выберите карточку --</option>
+              </select>
+            </div>
+          </div>
+          <div class="box-footer" style="display: flex; justify-content: flex-end; gap: 8px;">
+            <button class="btn btn-secondary" id="exportAllIssuesBtn">Экспорт всех</button>
+            <button class="btn btn-danger" id="deleteAllIssuesBtn">Удалить все</button>
+          </div>
+        </div>
+        <div class="box" id="issueDataContainer" style="display: none;">
+          <div class="box-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <h3 id="selectedIssueKey"></h3>
+            <div>
+              <button class="btn btn-secondary" id="exportIssueBtn">Экспорт JSON</button>
+              <button class="btn btn-danger" id="deleteIssueBtn">Удалить</button>
+            </div>
+          </div>
+          <div class="box-body" id="issueFieldsGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px;">
+            <!-- Fields will be injected by JS -->
+          </div>
+           <div class="box-footer">
+              Дата извлечения: <span id="extractedAt"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
-  <!-- Firebase SDK (локальные файлы для обхода CSP) -->
   <script src="firebase-app-compat.js"></script>
   <script src="firebase-database-compat.js"></script>
-  
   <script src="settings.js" type="module"></script>
 </body>
 </html>

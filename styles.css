@@ -1,190 +1,125 @@
-/* Стили для панели личных заметок в Jira - плавающее окно */
+/* jira-notes-extension/styles.css */
 
-.jira-notes-panel {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  padding: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', sans-serif;
-  overflow: hidden;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05);
-  z-index: 2147483647 !important; /* Максимальный z-index */
-  pointer-events: auto;
+:root {
+  --jpn-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  
+  /* Light Theme */
+  --jpn-color-canvas-default: #ffffff;
+  --jpn-color-canvas-overlay: #ffffff;
+  --jpn-color-canvas-inset: #f6f8fa;
+  --jpn-color-fg-default: #1f2328;
+  --jpn-color-fg-muted: #656d76;
+  --jpn-color-fg-subtle: #6e7781;
+  --jpn-color-border-default: #d0d7de;
+  --jpn-color-border-muted: #d8dee4;
+  --jpn-color-accent-fg: #0969da;
+  --jpn-color-accent-emphasis: #0969da;
+  --jpn-shadow-small: 0 1px 0 rgba(27, 31, 36, 0.04);
+  --jpn-shadow-medium: 0 3px 6px rgba(140, 149, 159, 0.15);
+  --jpn-shadow-large: 0 8px 24px rgba(140, 149, 159, 0.2);
 }
 
-.jira-notes-floating {
-  position: fixed !important; /* !important чтобы не перезаписывалось */
-  width: 300px;
-  max-width: 90vw;
-  display: block;
-  visibility: visible;
-  opacity: 1;
-  /* Оптимизация для плавности при скролле */
-  will-change: transform;
-  transform: translateZ(0); /* GPU ускорение */
-  backface-visibility: hidden;
-  /* top и left устанавливаются через JS */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --jpn-color-canvas-default: #161b22;
+    --jpn-color-canvas-overlay: #161b22;
+    --jpn-color-canvas-inset: #0d1117;
+    --jpn-color-fg-default: #e6edf3;
+    --jpn-color-fg-muted: #7d8590;
+    --jpn-color-fg-subtle: #6e7681;
+    --jpn-color-border-default: #30363d;
+    --jpn-color-border-muted: #21262d;
+    --jpn-color-accent-fg: #58a6ff;
+    --jpn-color-accent-emphasis: #1f6feb;
+  }
+}
+
+/* --- Floating Panel --- */
+.jira-notes-panel {
+  font-family: var(--jpn-font-sans);
+  background-color: var(--jpn-color-canvas-overlay);
+  border: 1px solid var(--jpn-color-border-default);
+  border-radius: 6px;
+  box-shadow: var(--jpn-shadow-large);
+  width: 320px;
+  position: fixed;
+  z-index: 2147483647 !important;
+  color: var(--jpn-color-fg-default);
+  display: flex;
+  flex-direction: column;
 }
 
 .jira-notes-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 14px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-  user-select: none;
+  padding: 8px 8px 8px 16px;
+  border-bottom: 1px solid var(--jpn-color-border-muted);
   cursor: move;
-}
-
-.jira-notes-header-content {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex: 1;
-}
-
-.jira-notes-icon {
-  font-size: 20px;
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
-}
-
-.jira-notes-header-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.jira-notes-header-title {
-  font-size: 10px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.85);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  user-select: none;
 }
 
 .jira-notes-title {
+  font-size: 14px;
+  font-weight: 600;
   margin: 0;
-  color: #ffffff;
-  font-size: 15px;
-  font-weight: 700;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 .jira-notes-close {
-  background: rgba(255, 255, 255, 0.15);
   border: none;
-  color: #ffffff;
-  cursor: pointer;
-  padding: 0;
-  font-size: 22px;
-  line-height: 1;
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  background: none;
+  padding: 8px;
   border-radius: 6px;
-  transition: all 0.2s;
-  backdrop-filter: blur(10px);
+  cursor: pointer;
+  color: var(--jpn-color-fg-muted);
 }
-
 .jira-notes-close:hover {
-  background: rgba(255, 255, 255, 0.25);
-  transform: scale(1.05);
-}
-
-.jira-notes-close:active {
-  transform: scale(0.95);
+  background-color: var(--jpn-color-canvas-inset);
+  color: var(--jpn-color-fg-default);
 }
 
 .jira-notes-content {
-  padding: 14px;
-  background: #ffffff;
-  max-height: 500px;
-  overflow-y: auto;
-}
-
-.jira-notes-content::-webkit-scrollbar {
-  width: 6px;
-}
-
-.jira-notes-content::-webkit-scrollbar-track {
-  background: #f3f4f6;
-  border-radius: 3px;
-}
-
-.jira-notes-content::-webkit-scrollbar-thumb {
-  background: #d1d5db;
-  border-radius: 3px;
-}
-
-.jira-notes-content::-webkit-scrollbar-thumb:hover {
-  background: #9ca3af;
-}
-
-/* Статусы */
-.jira-notes-markers {
-  margin-bottom: 12px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid #e5e7eb;
-}
-
-.jira-notes-markers-label {
-  font-size: 12px;
-  color: #374151;
-  font-weight: 700;
-  margin-bottom: 8px;
+  padding: 16px;
   display: flex;
-  align-items: center;
-  gap: 6px;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.jira-notes-markers-label,
+.jira-notes-textarea-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--jpn-color-fg-muted);
+  margin-bottom: 8px;
 }
 
 .jira-notes-markers-container {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 .jira-status-btn {
-  background: #ffffff;
-  border: 2px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 8px 12px;
-  cursor: pointer;
-  font-size: 13px;
-  transition: all 0.2s;
   display: flex;
+  width: 100%;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  padding: 5px 8px;
+  font-size: 14px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: none;
+  cursor: pointer;
   text-align: left;
-  font-weight: 600;
-  color: #1f2937;
+  color: var(--jpn-color-fg-default);
 }
-
 .jira-status-btn:hover {
-  background: #f9fafb;
-  border-color: #9ca3af;
-  transform: translateX(2px);
+  background-color: var(--jpn-color-canvas-inset);
 }
-
 .jira-status-btn.active {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-color: #667eea;
-  color: white;
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
-}
-
-.jira-status-btn.clear-status {
-  color: #6b7280;
-  margin-top: 2px;
-  border-style: dashed;
-}
-
-.jira-status-btn.clear-status:hover {
-  background: #fef2f2;
-  border-color: #ef4444;
-  color: #dc2626;
+  background-color: var(--jpn-color-accent-emphasis);
+  color: var(--jpn-color-canvas-default);
+  font-weight: 600;
 }
 
 .status-dot {
@@ -192,447 +127,72 @@
   height: 14px;
   border-radius: 50%;
   flex-shrink: 0;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
-}
-
-.jira-status-btn.active .status-dot {
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
-}
-
-.status-red {
-  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-}
-
-.status-yellow {
-  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
-}
-
-.status-purple {
-  background: linear-gradient(135deg, #a855f7 0%, #9333ea 100%);
-}
-
-.status-green {
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-}
-
-.status-gray {
-  background: linear-gradient(135deg, #9ca3af 0%, #6b7280 100%);
-}
-
-/* Поле заметок */
-.jira-notes-textarea-wrapper {
-  margin-bottom: 12px;
-}
-
-.jira-notes-textarea-label {
-  display: block;
-  font-size: 12px;
-  color: #374151;
-  font-weight: 700;
-  margin-bottom: 8px;
 }
 
 .jira-notes-textarea {
   width: 100%;
-  min-height: 90px;
-  padding: 10px 12px;
-  border: 2px solid #e5e7eb;
-  border-radius: 8px;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
-  font-size: 13px;
-  line-height: 1.6;
+  min-height: 100px;
+  padding: 8px 12px;
+  font-family: var(--jpn-font-sans);
+  font-size: 14px;
+  border: 1px solid var(--jpn-color-border-default);
+  border-radius: 6px;
+  background-color: var(--jpn-color-canvas-default);
+  color: var(--jpn-color-fg-default);
   resize: vertical;
-  transition: all 0.2s;
   box-sizing: border-box;
-  background: #ffffff;
-  color: #1f2937;
 }
-
 .jira-notes-textarea:focus {
   outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-  background: #fafbff;
+  border-color: var(--jpn-color-accent-fg);
+  box-shadow: 0 0 0 3px var(--jpn-color-accent-emphasis);
 }
 
-.jira-notes-textarea::placeholder {
-  color: #9ca3af;
-  font-style: italic;
+.jira-notes-footer {
+  font-size: 12px;
+  color: var(--jpn-color-fg-muted);
 }
 
-/* Метка на карточке задачи */
-.jira-personal-tag {
-  position: absolute;
-  bottom: 8px;
-  left: 8px;
-  padding: 4px 10px;
-  border-radius: 12px;
-  color: white;
-  font-weight: 600;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-  z-index: 5;
-  pointer-events: none;
-  max-width: calc(100% - 16px);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Скрываем красный пин/флажок Jira на карточках */
-[data-testid*="platform-card"] img[src*="flag"],
-[data-testid*="platform-card"] [role="presentation"]:has(img[alt*="flag"]),
-[data-testid*="card"] svg[data-testid*="flag"],
-.ghx-issue-flag,
-[data-testid*="platform-card.common.ui.flag"] {
-  display: none !important;
-}
-
-/* Персональный статус-точка на карточке */
+/* --- Card Indicators --- */
 .jira-personal-status {
   position: absolute !important;
-  top: 6px !important;
-  right: 4px !important;
-  width: 14px !important;
-  height: 14px !important;
+  top: 8px !important;
+  right: 8px !important;
+  width: 10px !important;
+  height: 10px !important;
   border-radius: 50% !important;
-  z-index: 100 !important;
-  pointer-events: none !important;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3) !important;
+  z-index: 10 !important;
+  border: 1px solid var(--jpn-color-canvas-overlay);
 }
 
-/* Иконка типа устройства (Apple/Windows/Other) */
 .jira-device-icon {
   position: absolute !important;
-  top: 6px !important;
-  right: 28px !important;
-  width: 18px !important;
-  height: 18px !important;
-  z-index: 99 !important;
-  pointer-events: none !important;
-  opacity: 0.9 !important;
-  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.25)) !important;
+  top: 8px !important;
+  right: 24px !important;
+  width: 20px !important;
+  height: 20px !important;
+  z-index: 9 !important;
+  opacity: 0.7;
 }
 
-.jira-personal-status.status-red {
-  background: #EF4444 !important;
-}
-
-.jira-personal-status.status-yellow {
-  background: #EAB308 !important;
-}
-
-.jira-personal-status.status-purple {
-  background: #A855F7 !important;
-}
-
-.jira-personal-status.status-green {
-  background: #22C55E !important;
-}
-
-/* Адрес доставки вместо номера задачи */
+.jira-personal-code-inline,
 .jira-personal-address-inline {
-  display: inline-block !important;
-  background: linear-gradient(135deg, #0052CC 0%, #0747A6 100%) !important;
-  color: white !important;
-  padding: 4px 10px !important;
-  border-radius: 6px !important;
-  font-size: 13px !important;
-  font-weight: 700 !important;
-  white-space: nowrap !important;
-  box-shadow: 0 2px 8px rgba(0, 82, 204, 0.3) !important;
-  letter-spacing: 0.3px !important;
-}
-
-/* Код офиса вместо номера задачи (приоритетнее адреса) */
-.jira-personal-code-inline {
-  display: inline-block !important;
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
-  color: white !important;
-  padding: 4px 10px !important;
-  border-radius: 6px !important;
-  font-size: 13px !important;
-  font-weight: 700 !important;
-  white-space: nowrap !important;
-  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3) !important;
-  letter-spacing: 0.3px !important;
-  text-transform: uppercase !important;
-}
-
-/* Адрес доставки на карточке (запасной вариант) */
-.jira-personal-address {
-  position: absolute !important;
-  bottom: 4px !important;
-  left: 4px !important;
-  background: #0052CC !important;
-  color: white !important;
-  padding: 2px 6px !important;
-  border-radius: 3px !important;
-  font-size: 10px !important;
-  font-weight: 600 !important;
-  z-index: 100 !important;
-  pointer-events: none !important;
-  white-space: nowrap !important;
-  max-width: calc(100% - 8px) !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2) !important;
-}
-
-.jira-personal-tag-inline {
   display: inline-block;
-  margin-left: 8px;
-  padding: 3px 8px;
-  border-radius: 10px;
-  color: white;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
   font-weight: 600;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  margin-left: 8px;
   vertical-align: middle;
 }
 
-
-
-.jira-notes-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 8px;
-  gap: 12px;
-  padding-top: 12px;
-  border-top: 1px solid #e5e7eb;
+.jira-personal-code-inline {
+  background-color: var(--jpn-color-accent-emphasis);
+  color: var(--jpn-color-canvas-default);
 }
 
-.jira-notes-info {
-  font-size: 11px;
-  color: #6b7280;
-  flex: 1;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.jira-notes-info strong {
-  color: #0969da;
-  font-weight: 600;
-}
-
-.jira-notes-save {
-  background: #2da44e;
-  color: white;
-  border: 1px solid rgba(27, 31, 36, 0.15);
-  padding: 5px 16px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  transition: background 0.2s;
-  box-shadow: 0 1px 0 rgba(27, 31, 36, 0.1);
-}
-
-.jira-notes-save:hover {
-  background: #2c974b;
-}
-
-.jira-notes-save:active {
-  background: #298e46;
-  box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.1);
-}
-
-.jira-notes-status {
-  margin-top: 10px;
-  padding: 8px 12px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 500;
-  display: none;
-  border-left: 3px solid;
-}
-
-.jira-notes-status-success {
-  background: #dafbe1;
-  color: #1a7f37;
-  border-color: #2da44e;
-}
-
-.jira-notes-status-error {
-  background: #ffebe9;
-  color: #cf222e;
-  border-color: #d1242f;
-}
-
-.jira-notes-status-info {
-  background: #ddf4ff;
-  color: #0969da;
-  border-color: #0969da;
-}
-
-/* Адаптивность */
-@media (max-width: 768px) {
-  .jira-notes-floating {
-    width: 260px;
-    top: 10px;
-    right: 10px;
-  }
-
-  .jira-notes-textarea {
-    min-height: 50px;
-    font-size: 11px;
-  }
-}
-
-/* Темная тема */
-@media (prefers-color-scheme: dark) {
-  .jira-notes-panel {
-    background: #1f2937;
-    border-color: #374151;
-  }
-
-  .jira-notes-header {
-    background: linear-gradient(135deg, #4c1d95 0%, #5b21b6 100%);
-    border-bottom-color: rgba(255, 255, 255, 0.1);
-  }
-
-  .jira-notes-header-title {
-    color: rgba(255, 255, 255, 0.9);
-  }
-
-  .jira-notes-title {
-    color: #ffffff;
-  }
-
-  .jira-notes-close {
-    background: rgba(255, 255, 255, 0.1);
-    color: #ffffff;
-  }
-
-  .jira-notes-close:hover {
-    background: rgba(255, 255, 255, 0.2);
-  }
-
-  .jira-notes-content {
-    background: #1f2937;
-  }
-
-  .jira-notes-markers {
-    border-bottom-color: #374151;
-  }
-
-  .jira-notes-markers-label {
-    color: #d1d5db;
-  }
-
-  .jira-notes-textarea-label {
-    color: #d1d5db;
-  }
-
-  .jira-status-btn {
-    background: #374151;
-    border-color: #4b5563;
-    color: #e5e7eb;
-  }
-
-  .jira-status-btn:hover {
-    background: #4b5563;
-    border-color: #6b7280;
-  }
-
-  .jira-status-btn.active {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    border-color: #667eea;
-    color: white;
-  }
-
-  .jira-status-btn.clear-status {
-    color: #9ca3af;
-  }
-
-  .jira-status-btn.clear-status:hover {
-    background: #7f1d1d;
-    border-color: #ef4444;
-    color: #fca5a5;
-  }
-
-  .jira-notes-textarea {
-    background: #374151;
-    color: #e5e7eb;
-    border-color: #4b5563;
-  }
-
-  .jira-notes-textarea:focus {
-    border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
-    background: #414966;
-  }
-
-  .jira-notes-textarea::placeholder {
-    color: #9ca3af;
-  }
-
-  .jira-notes-footer {
-    border-top-color: #374151;
-  }
-
-  .jira-notes-info {
-    color: #9ca3af;
-  }
-
-  .jira-personal-address {
-    background: rgba(59, 130, 246, 0.2) !important;
-    color: #93c5fd !important;
-  }
-}
-
-/* Стили для синхронизации */
-.sync-indicator {
-  display: inline-block;
-  font-size: 10px;
-  animation: pulse 2s ease-in-out infinite;
-}
-
-.sync-indicator.online {
-  animation: pulse-green 2s ease-in-out infinite;
-}
-
-.sync-indicator.offline {
-  animation: none;
-  opacity: 0.6;
-}
-
-@keyframes pulse-green {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.6;
-  }
-}
-
-.sync-editor-info {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: #f5f5f5;
-  border-radius: 6px;
-  font-size: 12px;
-  color: #666;
-  margin-top: 8px;
-  border-left: 3px solid;
-}
-
-.sync-editor-info[data-color] {
-  border-left-color: var(--editor-color, #667eea);
-}
-
-@media (prefers-color-scheme: dark) {
-  .sync-editor-info {
-    background: #374151;
-    color: #9ca3af;
-  }
+.jira-personal-address-inline {
+  background-color: var(--jpn-color-canvas-inset);
+  color: var(--jpn-color-fg-muted);
+  border: 1px solid var(--jpn-color-border-muted);
 }

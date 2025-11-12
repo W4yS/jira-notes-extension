@@ -93,10 +93,10 @@ class JiraNotesExtension {
     // Загружаем из storage
     const result = await chrome.storage.local.get('customStatuses');
     const statuses = result.customStatuses || [
-      { id: 'red', name: 'Проблема', emoji: '🔴', color: '#EF4444' },
-      { id: 'yellow', name: 'В процессе', emoji: '🟡', color: '#EAB308' },
-      { id: 'purple', name: 'В фокусе', emoji: '🟣', color: '#A855F7' },
-      { id: 'green', name: 'Готово', emoji: '🟢', color: '#22C55E' }
+      { id: 'red', name: 'Проблема', color: '#EF4444' },
+      { id: 'yellow', name: 'В процессе', color: '#EAB308' },
+      { id: 'purple', name: 'В фокусе', color: '#A855F7' },
+      { id: 'green', name: 'Готово', color: '#22C55E' }
     ];
     
     // Заполняем кеш
@@ -155,10 +155,10 @@ class JiraNotesExtension {
   async loadStatusesMetadata() {
     const result = await chrome.storage.local.get('customStatuses');
     const statuses = result.customStatuses || [
-      { id: 'red', name: 'Проблема', emoji: '🔴', color: '#EF4444' },
-      { id: 'yellow', name: 'В процессе', emoji: '🟡', color: '#EAB308' },
-      { id: 'purple', name: 'В фокусе', emoji: '🟣', color: '#A855F7' },
-      { id: 'green', name: 'Готово', emoji: '🟢', color: '#22C55E' }
+      { id: 'red', name: 'Проблема', color: '#EF4444' },
+      { id: 'yellow', name: 'В процессе', color: '#EAB308' },
+      { id: 'purple', name: 'В фокусе', color: '#A855F7' },
+      { id: 'green', name: 'Готово', color: '#22C55E' }
     ];
     
     statuses.forEach(s => {
@@ -309,77 +309,56 @@ class JiraNotesExtension {
 
   // Создаем HTML панели с заметками
   async createNotesPanel() {
-    // Загружаем кастомные статусы
     const result = await chrome.storage.local.get('customStatuses');
     const statuses = result.customStatuses || [
-      { id: 'red', name: 'Проблема', emoji: '🔴', color: '#EF4444', isDefault: true },
-      { id: 'yellow', name: 'В процессе', emoji: '🟡', color: '#EAB308', isDefault: true },
-      { id: 'purple', name: 'В фокусе', emoji: '🟣', color: '#A855F7', isDefault: true },
-      { id: 'green', name: 'Готово', emoji: '🟢', color: '#22C55E', isDefault: true }
+      { id: 'red', name: 'Проблема', color: '#EF4444' },
+      { id: 'yellow', name: 'В процессе', color: '#EAB308' },
+      { id: 'purple', name: 'В фокусе', color: '#A855F7' },
+      { id: 'green', name: 'Готово', color: '#22C55E' }
     ];
 
     const panel = document.createElement('div');
-    panel.className = 'jira-notes-panel jira-notes-floating';
+    panel.className = 'jira-notes-panel';
     panel.setAttribute('data-jira-notes-panel', 'true');
-    // Убираем излишние inline стили - они уже в CSS
-    
-    // Генерируем кнопки статусов динамически
+
     const statusButtons = statuses.map(status => `
       <button class="jira-status-btn" data-status="${status.id}" title="${status.name}">
-        <span class="status-dot" style="background: ${status.color};"></span>
-        ${status.emoji} ${status.name}
+        <span class="status-dot" style="background-color: ${status.color};"></span>
+        ${status.name}
       </button>
     `).join('');
-    
+
     panel.innerHTML = `
       <div class="jira-notes-header" id="jira-notes-drag-handle">
-        <div class="jira-notes-header-content">
-          <span class="jira-notes-icon">📝</span>
-          <div class="jira-notes-header-text">
-            <div class="jira-notes-header-title">Личные заметки</div>
-            <h3 class="jira-notes-title">${this.currentIssueKey}</h3>
-          </div>
-        </div>
+        <h3 class="jira-notes-title">${this.currentIssueKey}</h3>
         <button class="jira-notes-close" title="Закрыть">×</button>
       </div>
       <div class="jira-notes-content">
-        <div class="jira-notes-markers">
-          <div class="jira-notes-markers-label">🎯 Статус задачи:</div>
+        <div>
+          <div class="jira-notes-markers-label">Статус</div>
           <div class="jira-notes-markers-container">
             ${statusButtons}
-            <button class="jira-status-btn clear-status" data-status="" title="Очистить статус">
-              <span class="status-dot status-gray"></span>
+            <button class="jira-status-btn" data-status="" title="Очистить статус">
+              <span class="status-dot" style="background-color: var(--jpn-color-fg-subtle);"></span>
               Очистить
             </button>
           </div>
         </div>
-        <div class="jira-notes-textarea-wrapper">
-          <label class="jira-notes-textarea-label">💬 Ваши заметки:</label>
-          <textarea 
-            class="jira-notes-textarea" 
-            placeholder="Добавьте личную заметку к этой задаче..."
-            rows="4"
-          ></textarea>
+        <div>
+          <div class="jira-notes-textarea-label">Заметка</div>
+          <textarea class="jira-notes-textarea" placeholder="Добавьте личную заметку..."></textarea>
         </div>
         <div class="jira-notes-footer">
-          <span class="jira-notes-info">💾 Автосохранение</span>
+          Автосохранение включено
         </div>
       </div>
     `;
 
-    // Добавляем обработчики событий
     this.attachEventListeners(panel);
-    
-    // Восстанавливаем позицию
     this.restorePosition(panel);
-    
-    // Делаем перетаскиваемым
     this.makeDraggable(panel);
-    
-    // Защита от удаления
     this.protectPanel(panel);
 
-    console.log('✅ Panel created successfully');
     return panel;
   }
 
