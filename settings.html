@@ -18,6 +18,7 @@
       <button class="nav-tab active" data-tab="sync">Синхронизация</button>
       <button class="nav-tab" data-tab="statuses">Статусы</button>
       <button class="nav-tab" data-tab="issuedata">Данные</button>
+      <button class="nav-tab" data-tab="templates">Шаблоны</button>
     </div>
 
     <!-- Tab: Синхронизация -->
@@ -131,7 +132,7 @@
               <input type="text" id="newStatusName" class="form-control" placeholder="например: Ожидает ответа" maxlength="30">
             </div>
             <div class="form-group">
-              <label for="newStatusEmoji">Эмодзи (необязательно)</label>
+              <label for="newStatusEmoji">Эмодзи</label>
               <input type="text" id="newStatusEmoji" class="form-control" placeholder="🔵" maxlength="2" style="width: 60px;">
             </div>
             <div class="form-group">
@@ -156,39 +157,79 @@
 
     <!-- Tab: Данные -->
     <div class="tab-content" id="issuedataTab">
-       <div class="two-column-layout data-layout">
-        <div class="box">
-          <div class="box-header">
-            <h2>Сохраненные данные</h2>
-          </div>
-          <div class="box-body">
-            <p class="note" style="margin-bottom: 16px;">Здесь отображаются все данные, автоматически извлеченные из карточек Jira. Они хранятся локально в вашем браузере.</p>
-            <div class="form-group">
-              <label for="issueSelector">Выберите карточку для просмотра</label>
-              <select id="issueSelector" class="form-control">
-                <option value="">-- Выберите карточку --</option>
-              </select>
-            </div>
-          </div>
-          <div class="box-footer" style="display: flex; justify-content: flex-end; gap: 8px;">
-            <button class="btn btn-secondary" id="exportAllIssuesBtn">Экспорт всех</button>
-            <button class="btn btn-danger" id="deleteAllIssuesBtn">Удалить все</button>
+      <div class="box">
+        <div class="box-header">
+          <h2>Сохраненные данные по карточкам</h2>
+        </div>
+        <div class="box-body">
+          <p class="note" style="margin-bottom: 16px;">Здесь отображаются все данные, автоматически извлеченные из карточек Jira. Они хранятся локально в вашем браузере.</p>
+          <div class="table-wrapper">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Код элемента</th>
+                  <th>ГЕО</th>
+                  <th>Дата получения</th>
+                  <th>Офис или Адрес</th>
+                </tr>
+              </thead>
+              <tbody id="issues-table-body">
+                <!-- Rows will be injected by JS -->
+              </tbody>
+            </table>
           </div>
         </div>
-        <div class="box" id="issueDataContainer" style="display: none;">
-          <div class="box-header" style="display: flex; justify-content: space-between; align-items: center;">
-            <h3 id="selectedIssueKey"></h3>
-            <div>
-              <button class="btn btn-secondary" id="exportIssueBtn">Экспорт JSON</button>
-              <button class="btn btn-danger" id="deleteIssueBtn">Удалить</button>
+        <div class="box-footer" style="display: flex; justify-content: flex-end; gap: 8px;">
+          <button class="btn btn-secondary" id="exportAllIssuesBtn">Экспорт всех</button>
+          <button class="btn btn-danger" id="deleteAllIssuesBtn">Удалить все</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Шаблоны -->
+    <div class="tab-content" id="templatesTab">
+      <div class="template-constructor">
+        <!-- Left side: Template editor -->
+        <div class="box">
+          <div class="box-header">
+            <h2>Конструктор шаблона</h2>
+          </div>
+          <div class="box-body">
+            <p class="note" style="margin-bottom: 16px;">
+              Перетащите поля справа в текстовую область, чтобы создать свой шаблон.
+            </p>
+            <div class="form-group">
+              <label for="copypasteTemplate">Текст шаблона</label>
+              <textarea id="copypasteTemplate" class="form-control" rows="15" placeholder="Начните вводить текст или перетащите поле..."></textarea>
             </div>
           </div>
-          <div class="box-body" id="issueFieldsGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px;">
-            <!-- Fields will be injected by JS -->
+          <div class="box-footer" style="display: flex; justify-content: space-between; align-items: center;">
+            <button class="btn btn-primary" id="saveTemplateBtn">Сохранить шаблон</button>
+            <button class="btn btn-secondary" id="previewTemplateBtn">Предпросмотр</button>
           </div>
-           <div class="box-footer">
-              Дата извлечения: <span id="extractedAt"></span>
+        </div>
+
+        <!-- Right side: Available fields -->
+        <div class="box">
+          <div class="box-header">
+            <h3>Доступные поля</h3>
           </div>
+          <div class="box-body">
+            <p class="note" style="margin-bottom: 16px;">Это все поля, найденные в ваших задачах Jira.</p>
+            <div id="availableFields" class="available-fields-container">
+              <!-- Fields will be injected by JS -->
+              <p>Загрузка полей...</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="box" id="templatePreviewBox" style="display: none; margin-top: 16px;">
+        <div class="box-header">
+          <h3>Предпросмотр</h3>
+        </div>
+        <div class="box-body">
+          <pre id="templatePreviewContent" class="template-preview"></pre>
         </div>
       </div>
     </div>

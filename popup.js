@@ -38,9 +38,7 @@ function setupEventListeners() {
 
 // Открыть страницу настроек
 function openSettings() {
-  chrome.tabs.create({
-    url: chrome.runtime.getURL('settings.html')
-  });
+  chrome.runtime.openOptionsPage ? chrome.runtime.openOptionsPage() : window.open(chrome.runtime.getURL('settings.html'));
 }
 
 // Экспорт заметок в JSON

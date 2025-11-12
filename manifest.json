@@ -10,7 +10,7 @@
   },
   "permissions": [
     "storage",
-    "activeTab"
+    "tabs"
   ],
   "host_permissions": [
     "*://*.atlassian.net/*"
@@ -42,7 +42,8 @@
         "icons/mac_OS_128px.svg",
         "icons/win_128.svg",
         "icons/win_48.svg",
-        "icons/other.svg"
+        "icons/other.svg",
+        "templates.html"
       ],
       "matches": ["*://*.atlassian.net/*"]
     }

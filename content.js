@@ -1508,6 +1508,56 @@ class JiraNotesExtension {
 
     // Дополнительно следим за изменениями URL
     this.watchUrlChanges();
+
+    // НОВОЕ: Слушатель сообщений от других частей расширения
+    this.setupMessageListener();
+  }
+
+  // НОВОЕ: Обработчик сообщений
+  setupMessageListener() {
+    chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+      if (request.action === "getIssueDataForTemplate") {
+        console.log("Received request for template data from settings page.");
+        
+        // Собираем данные для шаблона из текущей задачи
+        const issueData = this.collectDataForTemplate();
+        
+        // Отправляем данные обратно на страницу настроек
+        sendResponse({ data: issueData });
+        
+        // Возвращаем true, чтобы указать, что ответ будет асинхронным
+        return true; 
+      }
+    });
+  }
+
+  // НОВОЕ: Сбор данных для шаблона
+  collectDataForTemplate() {
+    if (!this.currentIssueKey) {
+      return null;
+    }
+
+    const data = {
+      TASK_ID: this.currentIssueKey
+    };
+
+    // Используем данные, которые мы уже собрали в extractAndSaveAllIssueData
+    const allFieldsData = this.extractAndSaveAllIssueData();
+    if (allFieldsData && allFieldsData.fields) {
+        for (const [fieldId, fieldData] of Object.entries(allFieldsData.fields)) {
+            // Для обратной совместимости и удобства, дублируем некоторые поля
+            if (fieldId === 'summary') data['SUMMARY'] = fieldData.value;
+            if (fieldId === 'customfield_10989') data['USER_NAME'] = fieldData.value;
+            if (fieldId === 'customfield_11122') data['EQUIPMENT'] = fieldData.value;
+            if (fieldId === 'customfield_11120') data['ADDRESS'] = fieldData.value;
+            
+            // Добавляем все поля как есть
+            data[fieldId] = fieldData.value;
+        }
+    }
+
+    console.log("Collected data for template:", data);
+    return data;
   }
 
   // Отслеживаем изменения URL (для selectedIssue параметра)
@@ -1532,13 +1582,10 @@ class JiraNotesExtension {
               title.textContent = newIssueKey;
             }
             panel.style.display = 'block';
+            this.loadNotes();
           } else {
-            // Создаем панель если её нет
             this.injectNotesPanel();
           }
-          
-          // Загружаем новые данные
-          setTimeout(() => this.loadNotes(), 300);
         } else if (!newIssueKey) {
           // Если задача закрыта, скрываем панель
           const panel = document.querySelector('.jira-notes-panel');
