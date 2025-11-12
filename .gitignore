@@ -24,3 +24,9 @@ storage_backup.json
 # Firebase configuration with sensitive data
 firebase-config.js
 code.json
+
+# Copilot instructions
+.github/
+
+# Test file
+1.html
