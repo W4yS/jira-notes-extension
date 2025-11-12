@@ -740,7 +740,10 @@
       <div class="form-group" style="margin-bottom: 24px;">
         <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 8px;">
           <label style="margin: 0;">Выберите карточку для просмотра:</label>
-          <button class="btn-primary" id="exportAllIssuesBtn" style="padding: 8px 16px; flex: unset; font-size: 13px;">📦 Экспортировать все карточки</button>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn-primary" id="exportAllIssuesBtn" style="padding: 8px 16px; flex: unset; font-size: 13px;">📦 Экспортировать все карточки</button>
+            <button class="btn-secondary" id="deleteAllIssuesBtn" style="padding: 8px 16px; flex: unset; font-size: 13px; color: #dc2626; border-color: #dc2626;">🗑️ Удалить все карточки</button>
+          </div>
         </div>
         <select id="issueSelector" style="width: 100%; padding: 10px 12px; border: 2px solid #e0e0e0; border-radius: 6px; font-size: 14px; background: white; cursor: pointer;">
           <option value="">-- Выберите карточку --</option>

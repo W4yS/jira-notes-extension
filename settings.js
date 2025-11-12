@@ -462,6 +462,50 @@ document.addEventListener('DOMContentLoaded', async () => {
     alert(`✅ Экспортировано ${count} карточек в файл ${filename}`);
   });
 
+  // Удаление ВСЕХ данных карточек
+  document.getElementById('deleteAllIssuesBtn')?.addEventListener('click', async () => {
+    // Получаем все данные из storage
+    const allData = await chrome.storage.local.get(null);
+    
+    // Фильтруем только issuedata_*, devicetype_*
+    const keysToDelete = [];
+    let count = 0;
+    
+    for (const key of Object.keys(allData)) {
+      if (key.startsWith('issuedata_') || key.startsWith('devicetype_')) {
+        keysToDelete.push(key);
+        if (key.startsWith('issuedata_')) {
+          count++;
+        }
+      }
+    }
+    
+    if (count === 0) {
+      alert('⚠️ Нет сохраненных данных карточек для удаления');
+      return;
+    }
+    
+    // Подтверждение удаления
+    if (!confirm(`⚠️ ВНИМАНИЕ!\n\nВы уверены, что хотите удалить ВСЕ данные карточек?\n\nБудет удалено: ${count} карточек\n\nЭто действие нельзя отменить!`)) {
+      return;
+    }
+    
+    // Второе подтверждение для безопасности
+    if (!confirm(`🚨 Последнее предупреждение!\n\nВы действительно хотите удалить ${count} карточек?\n\nНажмите "ОК" для подтверждения удаления.`)) {
+      return;
+    }
+    
+    // Удаляем все ключи
+    await chrome.storage.local.remove(keysToDelete);
+    
+    // Обновляем интерфейс
+    document.getElementById('issueDataContainer').style.display = 'none';
+    document.getElementById('issueSelector').value = '';
+    await loadIssueDataList();
+    
+    alert(`✅ Успешно удалено ${count} карточек и связанных данных!`);
+  });
+
   // Экспорт данных карточки в JSON
   document.getElementById('exportIssueBtn')?.addEventListener('click', async () => {
     const issueKey = document.getElementById('issueSelector').value;
