@@ -348,6 +348,11 @@ class JiraNotesExtension {
           <div class="jira-notes-textarea-label">Заметка</div>
           <textarea class="jira-notes-textarea" placeholder="Добавьте личную заметку..."></textarea>
         </div>
+        <div class="jira-notes-copypaste-section">
+          <button class="jira-copypaste-btn" title="Скопировать заполненный шаблон в буфер обмена">
+            📋 Копипаста
+          </button>
+        </div>
         <div class="jira-notes-footer">
           Автосохранение включено
         </div>
@@ -404,6 +409,7 @@ class JiraNotesExtension {
     const textarea = panel.querySelector('.jira-notes-textarea');
     const closeButton = panel.querySelector('.jira-notes-close');
     const statusButtons = panel.querySelectorAll('.jira-status-btn');
+    const copypasteButton = panel.querySelector('.jira-copypaste-btn');
 
     // Автосохранение при вводе с debounce
     let saveTimeout;
@@ -433,6 +439,13 @@ class JiraNotesExtension {
         }
       }, { passive: true });
     });
+
+    // Обработчик кнопки копипасты
+    if (copypasteButton) {
+      copypasteButton.addEventListener('click', async () => {
+        await this.generateAndCopyCopypaste();
+      }, { passive: true });
+    }
 
     // Горячие клавиши
     textarea.addEventListener('keydown', (e) => {
@@ -948,7 +961,21 @@ class JiraNotesExtension {
           }
         }
         
-        // 5. Попробуем найти read-view для текстовых полей (общий случай)
+        // 5. Для single-line-text полей (важно!)
+        if (!fieldValue) {
+          const singleLineTextField = document.querySelector(`[data-testid="issue.views.field.single-line-text.read-view.${fieldId}"]`);
+          if (singleLineTextField) {
+            // Для single-line-text может быть ссылка внутри
+            const linkElement = singleLineTextField.querySelector('a');
+            if (linkElement) {
+              fieldValue = linkElement.textContent.trim();
+            } else {
+              fieldValue = singleLineTextField.textContent.trim();
+            }
+          }
+        }
+        
+        // 6. Попробуем найти read-view для текстовых полей (общий случай)
         if (!fieldValue) {
           const readView = document.querySelector(`[data-testid*="read-view.${fieldId}"]`);
           if (readView) {
@@ -956,7 +983,7 @@ class JiraNotesExtension {
           }
         }
         
-        // 6. Если не нашли, попробуем найти inline-edit контейнер
+        // 7. Если не нашли, попробуем найти inline-edit контейнер
         if (!fieldValue) {
           const inlineEdit = document.querySelector(`[data-testid*="${fieldId}--container"]`);
           if (inlineEdit) {
@@ -964,7 +991,7 @@ class JiraNotesExtension {
           }
         }
         
-        // 7. Для user полей
+        // 8. Для user полей
         if (!fieldValue) {
           const userField = document.querySelector(`[data-testid*="user-field.${fieldId}"]`);
           if (userField) {
@@ -976,15 +1003,20 @@ class JiraNotesExtension {
         }
         
         // Фильтруем пустые и placeholder значения
-        const placeholders = ['Нет', 'Введите текст', 'Добавьте варианты', 'Добавьте дату', 'Выбрать', 'Редактировать'];
+        const placeholders = ['Нет', 'Введите текст', 'Добавьте варианты', 'Добавьте дату', 'Выбрать', 'Редактировать', 'Закрепить вверху'];
         
-        // Также удаляем aria-label из значения
+        // Также удаляем aria-label и системный текст из значения
         if (fieldValue) {
           // Удаляем текст кнопок редактирования, который может попасть в значение
           fieldValue = fieldValue.replace(/Редактировать поле «.*?»/g, '').trim();
           fieldValue = fieldValue.replace(/Добавить.*?, edit/g, '').trim();
           fieldValue = fieldValue.replace(/Изменить.*?, edit/g, '').trim();
           fieldValue = fieldValue.replace(/Отредактировать поле.*?edit/g, '').trim();
+          // Удаляем текст из тултипов кнопок закрепления
+          fieldValue = fieldValue.replace(/Закрепить вверху.*?$/g, '').trim();
+          fieldValue = fieldValue.replace(/Открепить сверху.*?$/g, '').trim();
+          // Удаляем другие системные тексты
+          fieldValue = fieldValue.replace(/Закрепленные поля видны только вам\.?/g, '').trim();
         }
         
         if (fieldValue && !placeholders.includes(fieldValue) && fieldName) {
@@ -1612,6 +1644,365 @@ class JiraNotesExtension {
     // Затем проверяем path для старого формата
     const match = window.location.href.match(/\/browse\/([A-Z]+-\d+)/);
     return match ? match[1] : null;
+  }
+
+  // НОВОЕ: Генерация и копирование копипасты
+  async generateAndCopyCopypaste() {
+    try {
+      console.log('📋 Generating copypaste for', this.currentIssueKey);
+
+      // 1. Загружаем шаблон из storage
+      const { copypasteTemplate } = await chrome.storage.local.get('copypasteTemplate');
+      
+      if (!copypasteTemplate || copypasteTemplate.trim() === '') {
+        this.showCopypasteNotification('⚠️ Шаблон не настроен. Перейдите в Настройки → Шаблоны', 'warning');
+        return;
+      }
+
+      // 2. Загружаем данные текущей задачи
+      const issueDataKey = `issuedata_${this.currentIssueKey}`;
+      const result = await chrome.storage.local.get(issueDataKey);
+      const issueData = result[issueDataKey];
+
+      if (!issueData || !issueData.fields) {
+        this.showCopypasteNotification('⚠️ Нет данных по этой задаче. Перезагрузите страницу (F5)', 'warning');
+        return;
+      }
+
+      // 3. Заполняем шаблон данными
+      let filledTemplate = copypasteTemplate;
+
+      // Заменяем плейсхолдеры полями из issueData
+      for (const [fieldId, fieldData] of Object.entries(issueData.fields)) {
+        const placeholder = new RegExp(`{{${fieldId}}}`, 'g');
+        const value = fieldData.value || '';
+        filledTemplate = filledTemplate.replace(placeholder, value);
+      }
+
+      // Заменяем стандартные плейсхолдеры для обратной совместимости
+      filledTemplate = filledTemplate
+        .replace(/{{TASK_ID}}/g, this.currentIssueKey || '')
+        .replace(/{{issueKey}}/g, this.currentIssueKey || '')
+        .replace(/{{USER_NAME}}/g, issueData.fields?.customfield_10989?.value || '')
+        .replace(/{{EQUIPMENT}}/g, issueData.fields?.customfield_11122?.value || '')
+        .replace(/{{ADDRESS}}/g, issueData.fields?.customfield_11120?.value || '')
+        .replace(/{{SUMMARY}}/g, issueData.fields?.summary?.value || '');
+
+      // 4. Показываем окно предпросмотра
+      this.showCopypastePreview(filledTemplate);
+      
+      console.log('✅ Copypaste preview opened');
+
+    } catch (error) {
+      console.error('❌ Error generating copypaste:', error);
+      this.showCopypasteNotification('❌ Ошибка: ' + error.message, 'error');
+    }
+  }
+
+  // Показать окно предпросмотра копипасты
+  async showCopypastePreview(content) {
+    // Удаляем предыдущее окно предпросмотра, если есть
+    const existingPreview = document.querySelector('.jira-copypaste-preview-modal');
+    if (existingPreview) {
+      existingPreview.remove();
+    }
+
+    // Загружаем данные текущей задачи для конструктора
+    const issueDataKey = `issuedata_${this.currentIssueKey}`;
+    const result = await chrome.storage.local.get(issueDataKey);
+    const issueData = result[issueDataKey];
+
+    // Создаём HTML для полей конструктора
+    let fieldsHTML = '<p class="jira-preview-no-fields">Нет данных</p>';
+    
+    if (issueData && issueData.fields) {
+      // Список полей, которые НИКОГДА не нужны (фильтруем полностью)
+      const excludedFields = [
+        'customfield_17754', // Схема безопасности
+        'customfield_14246', // Задача с портала
+        'customfield_11174', // ГЕО
+        'customfield_11119', // Дата и время получения оборудования
+        'customfield_11124'  // Наличие аппрува от руководителя
+      ];
+      
+      // Список ID важных полей для группы "Основные"
+      const mainFields = [
+        'summary',           // Название заявки
+        'customfield_11062', // Телеграм сотрудника
+        'customfield_11087', // Ваш телеграм/Your Telegram
+        'customfield_11122', // Выберите тип оборудования
+        'customfield_11123', // Периферия
+        'customfield_11120', // Офис или Адрес
+        'customfield_11121'  // Номер телефона для курьера
+      ];
+      
+      // Группируем поля по категориям
+      const groups = {
+        'Основные': [],
+        'Дополнительно': []
+      };
+
+      // Сначала добавляем важные поля в "Основные"
+      mainFields.forEach(fieldId => {
+        const fieldData = issueData.fields[fieldId];
+        if (fieldData && fieldData.value) {
+          groups['Основные'].push({ 
+            id: fieldId, 
+            label: fieldData.label, 
+            value: fieldData.value 
+          });
+        }
+      });
+
+      // Остальные поля добавляем в "Дополнительно" (кроме исключенных)
+      for (const [fieldId, fieldData] of Object.entries(issueData.fields)) {
+        // Пропускаем если это поле уже в основных или в исключенных
+        if (mainFields.includes(fieldId) || excludedFields.includes(fieldId)) {
+          continue;
+        }
+        
+        // Добавляем в дополнительные
+        if (fieldData.value) {
+          groups['Дополнительно'].push({ 
+            id: fieldId, 
+            label: fieldData.label, 
+            value: fieldData.value 
+          });
+        }
+      }
+
+      // Создаём HTML
+      let groupsHTML = '';
+      for (const groupName in groups) {
+        const groupFields = groups[groupName];
+        if (groupFields.length > 0) {
+          groupsHTML += `<div class="jira-preview-field-group-header">${groupName}</div>`;
+          groupFields.forEach(field => {
+            const shortValue = field.value ? (field.value.length > 30 ? field.value.substring(0, 30) + '...' : field.value) : '—';
+            groupsHTML += `
+              <div class="jira-preview-field-pill" draggable="true" data-placeholder="{{${field.id}}}" title="${field.label}: ${field.value || 'пусто'}">
+                <span class="jira-preview-field-label">${field.label}</span>
+                <span class="jira-preview-field-value">${shortValue}</span>
+              </div>
+            `;
+          });
+        }
+      }
+      
+      fieldsHTML = groupsHTML;
+    }
+
+    // Создаём модальное окно
+    const modal = document.createElement('div');
+    modal.className = 'jira-copypaste-preview-modal';
+    modal.innerHTML = `
+      <div class="jira-copypaste-preview-backdrop"></div>
+      <div class="jira-copypaste-preview-content">
+        <div class="jira-copypaste-preview-header">
+          <h3>Предпросмотр копипасты - ${this.currentIssueKey}</h3>
+          <button class="jira-copypaste-preview-close" title="Закрыть">×</button>
+        </div>
+        <div class="jira-copypaste-preview-body">
+          <div class="jira-copypaste-preview-left">
+            <div class="jira-copypaste-preview-editor-section">
+              <div class="jira-preview-section-label">✏️ Редактирование (с плейсхолдерами)</div>
+              <textarea class="jira-copypaste-preview-textarea" spellcheck="false">${content}</textarea>
+            </div>
+            <div class="jira-copypaste-preview-result-section">
+              <div class="jira-preview-section-label">👁️ Результат (что будет скопировано)</div>
+              <div class="jira-copypaste-preview-result"></div>
+            </div>
+          </div>
+          <div class="jira-copypaste-preview-right">
+            <div class="jira-preview-fields-header">
+              <strong>Поля задачи</strong>
+              <small>Перетащите в текст</small>
+            </div>
+            <div class="jira-preview-fields-container">
+              ${fieldsHTML}
+            </div>
+          </div>
+        </div>
+        <div class="jira-copypaste-preview-footer">
+          <button class="jira-copypaste-preview-cancel">Отмена</button>
+          <button class="jira-copypaste-preview-copy">📋 Копировать</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // Обработчики событий
+    const closeBtn = modal.querySelector('.jira-copypaste-preview-close');
+    const cancelBtn = modal.querySelector('.jira-copypaste-preview-cancel');
+    const copyBtn = modal.querySelector('.jira-copypaste-preview-copy');
+    const backdrop = modal.querySelector('.jira-copypaste-preview-backdrop');
+    const textarea = modal.querySelector('.jira-copypaste-preview-textarea');
+    const resultDiv = modal.querySelector('.jira-copypaste-preview-result');
+    const fieldPills = modal.querySelectorAll('.jira-preview-field-pill');
+
+    // Функция замены плейсхолдеров на реальные значения
+    const replacePlaceholders = (text) => {
+      if (!issueData || !issueData.fields) return text;
+      
+      let result = text;
+      
+      // Заменяем плейсхолдеры полями из issueData
+      for (const [fieldId, fieldData] of Object.entries(issueData.fields)) {
+        const placeholder = new RegExp(`{{${fieldId}}}`, 'g');
+        const value = fieldData.value || '';
+        result = result.replace(placeholder, value);
+      }
+      
+      // Заменяем стандартные плейсхолдеры
+      result = result
+        .replace(/{{TASK_ID}}/g, this.currentIssueKey || '')
+        .replace(/{{issueKey}}/g, this.currentIssueKey || '')
+        .replace(/{{USER_NAME}}/g, issueData.fields?.customfield_10989?.value || '')
+        .replace(/{{EQUIPMENT}}/g, issueData.fields?.customfield_11122?.value || '')
+        .replace(/{{ADDRESS}}/g, issueData.fields?.customfield_11120?.value || '')
+        .replace(/{{SUMMARY}}/g, issueData.fields?.summary?.value || '');
+      
+      return result;
+    };
+
+    // Обновление панели результата
+    const updateResultPreview = () => {
+      const replacedText = replacePlaceholders(textarea.value);
+      resultDiv.textContent = replacedText;
+    };
+
+    // Первоначальное обновление результата
+    updateResultPreview();
+
+    // Автофокус на текстовую область и выделение всего текста
+    setTimeout(() => {
+      textarea.focus();
+      textarea.select();
+    }, 100);
+
+    // Обновление результата при изменении текста
+    textarea.addEventListener('input', updateResultPreview);
+
+    // Закрытие окна
+    const closeModal = () => {
+      modal.style.animation = 'fadeOut 0.2s ease-out';
+      setTimeout(() => modal.remove(), 200);
+    };
+
+    closeBtn.addEventListener('click', closeModal);
+    cancelBtn.addEventListener('click', closeModal);
+    backdrop.addEventListener('click', closeModal);
+
+    // Копирование - копируем ЗАМЕНЕННЫЙ текст
+    copyBtn.addEventListener('click', async () => {
+      const textToCopy = replacePlaceholders(textarea.value);
+      try {
+        await navigator.clipboard.writeText(textToCopy);
+        this.showCopypasteNotification('✅ Скопировано в буфер обмена!', 'success');
+        closeModal();
+      } catch (error) {
+        console.error('Copy error:', error);
+        this.showCopypasteNotification('❌ Ошибка копирования', 'error');
+      }
+    });
+
+    // Горячие клавиши
+    modal.addEventListener('keydown', (e) => {
+      // Escape - закрыть
+      if (e.key === 'Escape') {
+        closeModal();
+      }
+      // Ctrl+Enter - скопировать
+      if (e.ctrlKey && e.key === 'Enter') {
+        copyBtn.click();
+      }
+    });
+
+    // Drag & Drop для полей
+    fieldPills.forEach(pill => {
+      pill.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData('text/plain', pill.dataset.placeholder);
+        pill.style.opacity = '0.5';
+      });
+
+      pill.addEventListener('dragend', (e) => {
+        pill.style.opacity = '1';
+      });
+    });
+
+    // Drop на textarea
+    textarea.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      textarea.classList.add('drag-over');
+    });
+
+    textarea.addEventListener('dragleave', () => {
+      textarea.classList.remove('drag-over');
+    });
+
+    textarea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      textarea.classList.remove('drag-over');
+      
+      const placeholder = e.dataTransfer.getData('text/plain');
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const text = textarea.value;
+      
+      textarea.value = text.substring(0, start) + placeholder + text.substring(end);
+      textarea.focus();
+      textarea.selectionEnd = start + placeholder.length;
+      
+      // Обновляем результат после drop
+      updateResultPreview();
+    });
+  }
+
+  // Показать уведомление о копипасте
+  showCopypasteNotification(message, type = 'info') {
+    // Удаляем предыдущее уведомление, если есть
+    const existingNotification = document.querySelector('.jira-copypaste-notification');
+    if (existingNotification) {
+      existingNotification.remove();
+    }
+
+    const notification = document.createElement('div');
+    notification.className = 'jira-copypaste-notification';
+    notification.textContent = message;
+    
+    // Цвет в зависимости от типа
+    const colors = {
+      success: '#22C55E',
+      warning: '#EAB308',
+      error: '#EF4444',
+      info: '#3B82F6'
+    };
+    
+    notification.style.cssText = `
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: ${colors[type] || colors.info};
+      color: white;
+      padding: 12px 24px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      z-index: 2147483647;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 14px;
+      font-weight: 500;
+      animation: slideDown 0.3s ease-out;
+    `;
+
+    document.body.appendChild(notification);
+
+    // Автоматически скрываем через 3 секунды
+    setTimeout(() => {
+      notification.style.animation = 'slideUp 0.3s ease-in';
+      setTimeout(() => notification.remove(), 300);
+    }, 3000);
   }
 }
 
