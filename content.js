@@ -960,18 +960,20 @@ class JiraNotesExtension {
         console.error('Error saving collapse state:', error);
       }
     } else {
-      // Сворачиваем - скрываем контент и перемещаем вниз
-      panel.classList.add('collapsed');
+      // Сворачиваем - СНАЧАЛА перемещаем вниз, ПОТОМ скрываем контент
       
       // Сохраняем текущую top позицию
       panel.dataset.savedTop = panel.style.top;
       
-      // Ждём завершения анимации скрытия контента (250ms)
-      await new Promise(resolve => setTimeout(resolve, 250));
-      
-      // Перемещаем вниз страницы
+      // СНАЧАЛА перемещаем вниз страницы
       panel.style.top = 'auto';
       panel.style.bottom = '20px';
+      
+      // Ждём завершения анимации перемещения (350ms)
+      await new Promise(resolve => setTimeout(resolve, 350));
+      
+      // ПОТОМ скрываем контент
+      panel.classList.add('collapsed');
       
       minimizeBtn.textContent = '□';
       minimizeBtn.title = 'Развернуть';
