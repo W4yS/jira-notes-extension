@@ -1064,13 +1064,19 @@ class JiraNotesExtension {
     }
   }
 
-  // Извлекаем и сохраняем адрес из открытой задачи - ОПТИМИЗИРОВАННАЯ ВЕРСИЯ v2
+  // Извлекаем и сохраняем адрес из открытой задачи - ОПТИМИЗИРОВАННАЯ ВЕРСИЯ v3
   async extractAndSaveAddress() {
+    // Ранний выход если адрес уже в кеше
+    if (this.currentIssueKey && this.addressCache[this.currentIssueKey]) {
+      console.log(`✓ Address in cache: ${this.currentIssueKey}`);
+      return;
+    }
+    
     console.log('🔍 Starting address extraction...');
     
     // Уменьшаем количество попыток и задержку
-    const maxAttempts = 3; // Уменьшили с 5 до 3
-    const attemptDelay = 200; // Уменьшили с 300 до 200мс
+    const maxAttempts = 2; // Уменьшили с 3 до 2
+    const attemptDelay = 100; // Уменьшили с 200 до 100мс
     
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const addressField = document.querySelector('[data-testid="issue.views.field.single-line-text.read-view.customfield_11120"]');
@@ -1090,8 +1096,8 @@ class JiraNotesExtension {
             });
             console.log(`💾 Address saved: ${this.currentIssueKey} -> ${address.substring(0, 30)}...`);
             
-            // Обновляем карточки только если адрес изменился
-            setTimeout(() => this.updateAllCards(), 300); // Уменьшили с 500 до 300
+            // Обновляем карточки без задержки
+            this.updateAllCards();
           } else {
             console.log(`✓ Address unchanged, skip update`);
           }
@@ -1137,12 +1143,18 @@ class JiraNotesExtension {
     return this._normalizeAddressMemoized(text);
   }
 
-  // Извлекаем кодировку офиса из двух полей Jira - ОПТИМИЗИРОВАННАЯ ВЕРСИЯ v2
+  // Извлекаем кодировку офиса из двух полей Jira - ОПТИМИЗИРОВАННАЯ ВЕРСИЯ v3
   async extractAndSaveOfficeCode() {
+    // Ранний выход если код уже в кеше
+    if (this.currentIssueKey && this.codeCache[this.currentIssueKey]) {
+      console.log(`✓ Office code in cache: ${this.currentIssueKey} -> ${this.codeCache[this.currentIssueKey]}`);
+      return;
+    }
+    
     console.log('🏢 Starting office code extraction...');
     
-    const maxAttempts = 3; // Уменьшили с 5 до 3
-    const attemptDelay = 200; // Уменьшили с 300 до 200мс
+    const maxAttempts = 2; // Уменьшили с 3 до 2
+    const attemptDelay = 100; // Уменьшили с 200 до 100мс
     
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       // Поле 1: "Офис или Адрес" (customfield_11120)
@@ -1219,8 +1231,8 @@ class JiraNotesExtension {
             });
             console.log(`💾 Office code saved: ${this.currentIssueKey} -> ${foundCode}`);
             
-            // Обновляем карточки
-            setTimeout(() => this.updateAllCards(), 300); // Уменьшили задержку с 500 до 300
+            // Обновляем карточки без задержки
+            this.updateAllCards();
           } else {
             console.log(`✓ Office code unchanged, skip update`);
           }
