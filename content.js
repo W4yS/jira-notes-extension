@@ -938,20 +938,18 @@ class JiraNotesExtension {
     const isCollapsed = panel.classList.contains('collapsed');
     
     if (isCollapsed) {
-      // Разворачиваем - сначала показываем, потом анимируем
+      // Разворачиваем
       minimizeBtn.textContent = '—';
       minimizeBtn.title = 'Свернуть';
       
-      // Удаляем display: none для начала анимации
-      content.style.display = 'flex';
+      // Убираем inline styles если есть
+      content.style.display = '';
       
       // Force reflow для применения начального состояния
       void panel.offsetHeight;
       
-      // Запускаем анимацию через RAF
-      requestAnimationFrame(() => {
-        panel.classList.remove('collapsed');
-      });
+      // Убираем класс collapsed - CSS сам развернёт
+      panel.classList.remove('collapsed');
       
       console.log('📖 Panel expanded');
       
@@ -962,18 +960,12 @@ class JiraNotesExtension {
         console.error('Error saving collapse state:', error);
       }
     } else {
-      // Сворачиваем - сначала анимируем, потом скрываем
+      // Сворачиваем
       minimizeBtn.textContent = '□';
       minimizeBtn.title = 'Развернуть';
       
+      // Добавляем класс collapsed - CSS сам свернёт
       panel.classList.add('collapsed');
-      
-      // Скрываем content после завершения анимации (400ms)
-      setTimeout(() => {
-        if (panel.classList.contains('collapsed')) {
-          content.style.display = 'none';
-        }
-      }, 400);
       
       console.log('📕 Panel collapsed');
       
