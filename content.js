@@ -1,5 +1,142 @@
 // Главный скрипт расширения для добавления заметок к задачам Jira
 
+// === Performance Utilities ===
+
+// Memoization для дорогих вычислений
+class Memoizer {
+  constructor(maxSize = 1000) {
+    this.cache = new Map();
+    this.maxSize = maxSize;
+  }
+  
+  memoize(fn) {
+    return (...args) => {
+      const key = JSON.stringify(args);
+      
+      if (this.cache.has(key)) {
+        return this.cache.get(key);
+      }
+      
+      const result = fn(...args);
+      
+      // LRU eviction
+      if (this.cache.size >= this.maxSize) {
+        const firstKey = this.cache.keys().next().value;
+        this.cache.delete(firstKey);
+      }
+      
+      this.cache.set(key, result);
+      return result;
+    };
+  }
+  
+  clear() {
+    this.cache.clear();
+  }
+}
+
+// Улучшенный debounce с leading edge
+function debounceLeading(func, wait, options = {}) {
+  let timeout, result;
+  const { leading = true, trailing = true, maxWait = null } = options;
+  let lastCallTime = 0;
+  let lastInvokeTime = 0;
+  
+  function invokeFunc(time) {
+    lastInvokeTime = time;
+    result = func();
+    return result;
+  }
+  
+  function shouldInvoke(time) {
+    const timeSinceLastCall = time - lastCallTime;
+    const timeSinceLastInvoke = time - lastInvokeTime;
+    
+    return (
+      lastCallTime === 0 ||
+      timeSinceLastCall >= wait ||
+      (maxWait !== null && timeSinceLastInvoke >= maxWait)
+    );
+  }
+  
+  function debounced() {
+    const time = Date.now();
+    const isInvoking = shouldInvoke(time);
+    
+    lastCallTime = time;
+    
+    if (isInvoking && leading) {
+      if (lastInvokeTime === 0) {
+        lastInvokeTime = time;
+        result = func();
+      }
+    }
+    
+    clearTimeout(timeout);
+    
+    if (trailing) {
+      timeout = setTimeout(() => {
+        const currentTime = Date.now();
+        if (shouldInvoke(currentTime)) {
+          invokeFunc(currentTime);
+        }
+      }, wait);
+    }
+    
+    return result;
+  }
+  
+  debounced.cancel = function() {
+    clearTimeout(timeout);
+    lastCallTime = 0;
+    lastInvokeTime = 0;
+  };
+  
+  return debounced;
+}
+
+// RAF Batcher для оптимизации DOM операций
+class RAFBatcher {
+  constructor() {
+    this.readCallbacks = [];
+    this.writeCallbacks = [];
+    this.scheduled = false;
+  }
+  
+  scheduleRead(callback) {
+    this.readCallbacks.push(callback);
+    this.schedule();
+  }
+  
+  scheduleWrite(callback) {
+    this.writeCallbacks.push(callback);
+    this.schedule();
+  }
+  
+  schedule() {
+    if (this.scheduled) return;
+    
+    this.scheduled = true;
+    requestAnimationFrame(() => this.flush());
+  }
+  
+  flush() {
+    // Phase 1: All reads (measure)
+    const reads = this.readCallbacks.slice();
+    this.readCallbacks = [];
+    reads.forEach(callback => callback());
+    
+    // Phase 2: All writes (mutate)
+    const writes = this.writeCallbacks.slice();
+    this.writeCallbacks = [];
+    writes.forEach(callback => callback());
+    
+    this.scheduled = false;
+  }
+}
+
+// === Main Extension Class ===
+
 class JiraNotesExtension {
   constructor() {
     this.currentIssueKey = null;
@@ -7,6 +144,10 @@ class JiraNotesExtension {
     this.initialized = false;
     this.isUpdating = false; // Флаг для предотвращения множественных обновлений
     this.officeDetectionEnabled = true; // По умолчанию включено
+    
+    // Performance utilities
+    this.memoizer = new Memoizer(500);
+    this.rafBatcher = new RAFBatcher();
     
     // Кеш для оптимизации производительности
     this.statusCache = {}; // { issueKey: status }
@@ -682,21 +823,27 @@ class JiraNotesExtension {
     console.log('❌ Address field not found or empty');
   }
 
-  // Нормализация текста для сравнения адресов (улучшенная версия)
+  // Нормализация текста для сравнения адресов (с memoization)
   normalizeAddress(text) {
-    if (!text) return '';
-    return text
-      .toLowerCase()
-      .replace(/санкт-петербург|спб|с-пб/gi, '') // Убираем город
-      .replace(/бизнес-центр|бц/gi, '') // Убираем БЦ
-      .replace(/коворкинг/gi, '') // Убираем коворкинг
-      .replace(/улица|ул\./gi, 'ул') // Нормализуем улица
-      .replace(/проспект|пр-кт|пр\./gi, 'пр') // Нормализуем проспект
-      .replace(/дом|д\./gi, '') // Убираем "дом"
-      .replace(/корпус|к\./gi, 'к') // Нормализуем корпус
-      .replace(/строение|стр\./gi, 'стр') // Нормализуем строение
-      .replace(/[.,\s"«»]+/g, '') // Убираем пробелы, точки, запятые, кавычки
-      .replace(/-/g, ''); // Убираем дефисы
+    // Используем memoization для кеширования результатов
+    if (!this._normalizeAddressMemoized) {
+      this._normalizeAddressMemoized = this.memoizer.memoize((txt) => {
+        if (!txt) return '';
+        return txt
+          .toLowerCase()
+          .replace(/санкт-петербург|спб|с-пб/gi, '') // Убираем город
+          .replace(/бизнес-центр|бц/gi, '') // Убираем БЦ
+          .replace(/коворкинг/gi, '') // Убираем коворкинг
+          .replace(/улица|ул\./gi, 'ул') // Нормализуем улица
+          .replace(/проспект|пр-кт|пр\./gi, 'пр') // Нормализуем проспект
+          .replace(/дом|д\./gi, '') // Убираем "дом"
+          .replace(/корпус|к\./gi, 'к') // Нормализуем корпус
+          .replace(/строение|стр\./gi, 'стр') // Нормализуем строение
+          .replace(/[.,\s"«»]+/g, '') // Убираем пробелы, точки, запятые, кавычки
+          .replace(/-/g, ''); // Убираем дефисы
+      });
+    }
+    return this._normalizeAddressMemoized(text);
   }
 
   // Извлекаем кодировку офиса из двух полей Jira - ОПТИМИЗИРОВАННАЯ ВЕРСИЯ v2
@@ -1180,8 +1327,20 @@ class JiraNotesExtension {
     });
   }
 
-  // Обновляем ВСЕ карточки на доске (МОМЕНТАЛЬНАЯ ВЕРСИЯ v4 - без задержек)
+  // Обновляем ВСЕ карточки на доске (ОПТИМИЗИРОВАННАЯ v5 - с RAF batching)
   async updateAllCards() {
+    // Создаем debounced версию при первом вызове
+    if (!this._updateAllCardsDebounced) {
+      this._updateAllCardsDebounced = debounceLeading(
+        () => this._updateAllCardsImpl(),
+        200,
+        { leading: true, trailing: true, maxWait: 500 }
+      );
+    }
+    return this._updateAllCardsDebounced();
+  }
+  
+  async _updateAllCardsImpl() {
     // Проверяем, что контекст расширения еще валиден
     if (!chrome.runtime?.id) {
       // Показываем уведомление пользователю один раз
@@ -1344,23 +1503,33 @@ class JiraNotesExtension {
       threshold: 0.01 // Минимальная видимость
     });
 
-    // Функция для обработки одной карточки синхронно
+    // Функция для обработки одной карточки с RAF batching
     this.processCard = (cardContainer) => {
-      const link = cardContainer.querySelector('a[href*="/browse/"], a[href*="selectedIssue="]');
-      if (!link) return;
-      
-      const href = link.href || '';
-      const issueMatch = href.match(/([A-Z]+-\d+)/);
-      if (!issueMatch) return;
-      
-      const issueKey = issueMatch[1];
-      
-      // Проверяем что не обработано
-      if (cardContainer.hasAttribute('data-jira-processed')) return;
-      
-      cardContainer.setAttribute('data-jira-processed', 'true');
-      cardContainer.style.position = 'relative';
-      
+      // Измерения выполняем в read фазе
+      this.rafBatcher.scheduleRead(() => {
+        const link = cardContainer.querySelector('a[href*="/browse/"], a[href*="selectedIssue="]');
+        if (!link) return;
+        
+        const href = link.href || '';
+        const issueMatch = href.match(/([A-Z]+-\d+)/);
+        if (!issueMatch) return;
+        
+        const issueKey = issueMatch[1];
+        
+        // Проверяем что не обработано
+        if (cardContainer.hasAttribute('data-jira-processed')) return;
+        
+        // Все DOM манипуляции в write фазе
+        this.rafBatcher.scheduleWrite(() => {
+          cardContainer.setAttribute('data-jira-processed', 'true');
+          cardContainer.style.position = 'relative';
+          this._applyCardModifications(cardContainer, link, issueKey);
+        });
+      });
+    };
+    
+    // Вспомогательный метод для применения модификаций карточки
+    this._applyCardModifications = (cardContainer, link, issueKey) => {
       // Статус
       if (this.statusCache[issueKey] && !cardContainer.querySelector('.jira-personal-status')) {
         const statusData = this.statusesMetadata[this.statusCache[issueKey]] || { 

@@ -34,6 +34,29 @@
   }
 }
 
+/* --- Performance Optimizations --- */
+
+/* Content Visibility API для карточек Jira */
+[data-testid="software-board.board-container.board.card-container.card-with-icc"] {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 120px;
+}
+
+/* Оптимизация для больших списков в настройках */
+.status-item,
+.data-table tbody tr {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 50px;
+}
+
+/* GPU acceleration для анимаций */
+.jira-notes-panel,
+.jira-personal-status,
+.jira-device-icon {
+  will-change: transform;
+  transform: translateZ(0);
+}
+
 /* --- Floating Panel --- */
 .jira-notes-panel {
   font-family: var(--jpn-font-sans);
