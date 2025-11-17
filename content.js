@@ -937,8 +937,17 @@ class JiraNotesExtension {
     const isCollapsed = panel.classList.contains('collapsed');
     
     if (isCollapsed) {
-      // Разворачиваем
+      // Разворачиваем - возвращаем исходную позицию
       panel.classList.remove('collapsed');
+      
+      // Восстанавливаем сохранённую позицию
+      const savedTop = panel.dataset.savedTop;
+      if (savedTop) {
+        panel.style.top = savedTop;
+        panel.style.bottom = 'auto';
+        delete panel.dataset.savedTop;
+      }
+      
       minimizeBtn.textContent = '—';
       minimizeBtn.title = 'Свернуть';
       console.log('📖 Panel expanded');
@@ -950,8 +959,16 @@ class JiraNotesExtension {
         console.error('Error saving collapse state:', error);
       }
     } else {
-      // Сворачиваем
+      // Сворачиваем - сохраняем X, перемещаем вниз
       panel.classList.add('collapsed');
+      
+      // Сохраняем текущую top позицию
+      panel.dataset.savedTop = panel.style.top;
+      
+      // Перемещаем вниз страницы, сохраняя левую/правую позицию
+      panel.style.top = 'auto';
+      panel.style.bottom = '20px';
+      
       minimizeBtn.textContent = '□';
       minimizeBtn.title = 'Развернуть';
       console.log('📕 Panel collapsed');
@@ -972,11 +989,15 @@ class JiraNotesExtension {
       const isCollapsed = result.panel_collapsed || false;
       
       if (isCollapsed) {
-        const content = panel.querySelector('.jira-notes-content');
         const minimizeBtn = panel.querySelector('.jira-notes-minimize');
         
         panel.classList.add('collapsed');
-        content.style.display = 'none';
+        
+        // Сохраняем текущую позицию и перемещаем вниз
+        panel.dataset.savedTop = panel.style.top;
+        panel.style.top = 'auto';
+        panel.style.bottom = '20px';
+        
         minimizeBtn.textContent = '□';
         minimizeBtn.title = 'Развернуть';
         console.log('📕 Restored collapsed state');
