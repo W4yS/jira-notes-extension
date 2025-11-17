@@ -943,10 +943,13 @@ class JiraNotesExtension {
       
       // Восстанавливаем сохранённую позицию
       const savedTop = panel.dataset.savedTop;
-      if (savedTop) {
+      if (savedTop && savedTop !== '' && savedTop !== 'undefined') {
         panel.style.top = savedTop;
         panel.style.bottom = 'auto';
         delete panel.dataset.savedTop;
+      } else {
+        // Если нет сохранённой позиции, просто убираем bottom
+        panel.style.bottom = 'auto';
       }
       
       minimizeBtn.textContent = '—';
@@ -962,8 +965,10 @@ class JiraNotesExtension {
     } else {
       // Сворачиваем - СНАЧАЛА перемещаем вниз, ПОТОМ скрываем контент
       
-      // Сохраняем текущую top позицию
-      panel.dataset.savedTop = panel.style.top;
+      // Сохраняем текущую top позицию (только если она есть)
+      if (panel.style.top && panel.style.top !== 'auto') {
+        panel.dataset.savedTop = panel.style.top;
+      }
       
       // СНАЧАЛА перемещаем вниз страницы
       panel.style.top = 'auto';
@@ -997,12 +1002,8 @@ class JiraNotesExtension {
       if (isCollapsed) {
         const minimizeBtn = panel.querySelector('.jira-notes-minimize');
         
+        // Просто добавляем класс, позицию не меняем
         panel.classList.add('collapsed');
-        
-        // Сохраняем текущую позицию и перемещаем вниз
-        panel.dataset.savedTop = panel.style.top;
-        panel.style.top = 'auto';
-        panel.style.bottom = '20px';
         
         minimizeBtn.textContent = '□';
         minimizeBtn.title = 'Развернуть';
