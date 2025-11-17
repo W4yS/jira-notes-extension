@@ -617,6 +617,13 @@
   border-radius: 50% !important;
   z-index: 10 !important;
   border: 1px solid var(--jpn-color-canvas-overlay);
+  transition: background-color 0.3s ease, transform 0.2s ease !important;
+  animation: fadeInSlide 0.3s ease-out forwards;
+  opacity: 0;
+}
+
+.jira-personal-status:hover {
+  transform: scale(1.2) !important;
 }
 
 .jira-device-icon {
@@ -626,7 +633,13 @@
   width: 20px !important;
   height: 20px !important;
   z-index: 9 !important;
-  opacity: 0.7;
+  opacity: 0;
+  transition: opacity 0.3s ease, transform 0.2s ease !important;
+  animation: fadeInSlide 0.3s ease-out 0.1s forwards;
+}
+
+.jira-device-icon:hover {
+  transform: scale(1.15) !important;
 }
 
 .jira-personal-code-inline,
@@ -638,6 +651,25 @@
   font-weight: 600;
   margin-left: 8px;
   vertical-align: middle;
+  animation: fadeInSlide 0.3s ease-out 0.15s forwards;
+  opacity: 0;
+  transition: background-color 0.2s ease, transform 0.15s ease !important;
+}
+
+.jira-personal-code-inline:hover,
+.jira-personal-address-inline:hover {
+  transform: translateY(-1px) !important;
+}
+
+@keyframes fadeInSlide {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .jira-personal-code-inline {
