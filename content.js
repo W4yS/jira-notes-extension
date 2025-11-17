@@ -1000,15 +1000,12 @@ class JiraNotesExtension {
       const result = await chrome.storage.local.get('panel_collapsed');
       const isCollapsed = result.panel_collapsed || false;
       
+      // НЕ восстанавливаем свёрнутое состояние - всегда показываем панель развёрнутой
+      // Это предотвращает проблему с невидимой панелью после перезагрузки
       if (isCollapsed) {
-        const minimizeBtn = panel.querySelector('.jira-notes-minimize');
-        
-        // Просто добавляем класс, позицию не меняем
-        panel.classList.add('collapsed');
-        
-        minimizeBtn.textContent = '□';
-        minimizeBtn.title = 'Развернуть';
-        console.log('📕 Restored collapsed state');
+        console.log('📖 Panel was collapsed, but showing expanded on page load');
+        // Сбрасываем состояние на развёрнутое
+        await chrome.storage.local.set({ 'panel_collapsed': false });
       }
     } catch (error) {
       console.error('Error restoring collapsed state:', error);
