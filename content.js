@@ -672,7 +672,10 @@ class JiraNotesExtension {
     panel.innerHTML = `
       <div class="jira-notes-header" id="jira-notes-drag-handle">
         <h3 class="jira-notes-title">${this.currentIssueKey}</h3>
-        <button class="jira-notes-close" title="Закрыть">×</button>
+        <div class="jira-notes-header-buttons">
+          <button class="jira-notes-minimize" title="Свернуть">—</button>
+          <button class="jira-notes-close" title="Закрыть">×</button>
+        </div>
       </div>
       <div class="jira-notes-content">
         <div>
@@ -701,6 +704,7 @@ class JiraNotesExtension {
     `;
 
     this.attachEventListeners(panel);
+    await this.restoreCollapsedState(panel);
     this.restorePosition(panel);
     this.makeDraggable(panel);
     this.protectPanel(panel);
@@ -749,6 +753,7 @@ class JiraNotesExtension {
   attachEventListeners(panel) {
     const textarea = panel.querySelector('.jira-notes-textarea');
     const closeButton = panel.querySelector('.jira-notes-close');
+    const minimizeButton = panel.querySelector('.jira-notes-minimize');
     const statusButtons = panel.querySelectorAll('.jira-status-btn');
     const copypasteButton = panel.querySelector('.jira-copypaste-btn');
 
@@ -766,6 +771,12 @@ class JiraNotesExtension {
       e.stopPropagation();
       panel.style.display = 'none';
       console.log('Panel hidden by user');
+    }, { passive: false });
+
+    // Сворачивание/разворачивание окна
+    minimizeButton.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await this.togglePanelCollapse(panel);
     }, { passive: false });
 
     // Обработчики статусов с делегированием
@@ -917,6 +928,64 @@ class JiraNotesExtension {
       panel.style.left = (window.innerWidth - 300) + 'px';
       panel.style.top = '20px';
       panel.style.right = 'auto';
+    }
+  }
+  
+  // Сворачивание/разворачивание панели
+  async togglePanelCollapse(panel) {
+    const content = panel.querySelector('.jira-notes-content');
+    const minimizeBtn = panel.querySelector('.jira-notes-minimize');
+    const isCollapsed = panel.classList.contains('collapsed');
+    
+    if (isCollapsed) {
+      // Разворачиваем
+      panel.classList.remove('collapsed');
+      content.style.display = 'block';
+      minimizeBtn.textContent = '—';
+      minimizeBtn.title = 'Свернуть';
+      console.log('📖 Panel expanded');
+      
+      // Сохраняем состояние
+      try {
+        await chrome.storage.local.set({ 'panel_collapsed': false });
+      } catch (error) {
+        console.error('Error saving collapse state:', error);
+      }
+    } else {
+      // Сворачиваем
+      panel.classList.add('collapsed');
+      content.style.display = 'none';
+      minimizeBtn.textContent = '□';
+      minimizeBtn.title = 'Развернуть';
+      console.log('📕 Panel collapsed');
+      
+      // Сохраняем состояние
+      try {
+        await chrome.storage.local.set({ 'panel_collapsed': true });
+      } catch (error) {
+        console.error('Error saving collapse state:', error);
+      }
+    }
+  }
+  
+  // Восстановление состояния сворачивания
+  async restoreCollapsedState(panel) {
+    try {
+      const result = await chrome.storage.local.get('panel_collapsed');
+      const isCollapsed = result.panel_collapsed || false;
+      
+      if (isCollapsed) {
+        const content = panel.querySelector('.jira-notes-content');
+        const minimizeBtn = panel.querySelector('.jira-notes-minimize');
+        
+        panel.classList.add('collapsed');
+        content.style.display = 'none';
+        minimizeBtn.textContent = '□';
+        minimizeBtn.title = 'Развернуть';
+        console.log('📕 Restored collapsed state');
+      }
+    } catch (error) {
+      console.error('Error restoring collapsed state:', error);
     }
   }
 

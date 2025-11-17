@@ -70,6 +70,20 @@
   color: var(--jpn-color-fg-default);
   display: flex;
   flex-direction: column;
+  transition: all 0.2s ease;
+}
+
+/* Свернутое состояние */
+.jira-notes-panel.collapsed {
+  width: 320px;
+  bottom: 20px !important;
+  top: auto !important;
+  left: auto !important;
+  right: 20px !important;
+}
+
+.jira-notes-panel.collapsed .jira-notes-content {
+  display: none;
 }
 
 .jira-notes-header {
@@ -86,8 +100,39 @@
   font-size: 14px;
   font-weight: 600;
   margin: 0;
+  flex: 1;
 }
 
+.jira-notes-header-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.jira-notes-minimize,
+.jira-notes-close {
+  border: none;
+  background: none;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--jpn-color-fg-muted);
+  font-size: 18px;
+  line-height: 1;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.jira-notes-minimize:hover,
+.jira-notes-close:hover {
+  background-color: var(--jpn-color-canvas-inset);
+  color: var(--jpn-color-fg-default);
+}
+
+.jira-notes-minimize,
 .jira-notes-close {
   border: none;
   background: none;
@@ -95,7 +140,16 @@
   border-radius: 6px;
   cursor: pointer;
   color: var(--jpn-color-fg-muted);
+  font-size: 18px;
+  line-height: 1;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
+
+.jira-notes-minimize:hover,
 .jira-notes-close:hover {
   background-color: var(--jpn-color-canvas-inset);
   color: var(--jpn-color-fg-default);
