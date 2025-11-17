@@ -72,29 +72,9 @@
   flex-direction: column;
 }
 
-/* Свернутое состояние - фиксированная позиция */
-.jira-notes-panel.collapsed {
-  width: 320px;
-  bottom: 20px !important;
-  top: auto !important;
-  left: auto !important;
-  right: 20px !important;
-}
-
-/* Анимация контента - только по оси Y */
-.jira-notes-content {
-  transition: transform 0.4s cubic-bezier(0.32, 0.72, 0, 1),
-              opacity 0.25s ease,
-              max-height 0.4s cubic-bezier(0.32, 0.72, 0, 1);
-  transform-origin: top center;
-  overflow: hidden;
-}
-
+/* Свернутое состояние - простое скрытие контента */
 .jira-notes-panel.collapsed .jira-notes-content {
-  transform: scaleY(0);
-  opacity: 0;
-  max-height: 0;
-  pointer-events: none;
+  display: none !important;
 }
 
 .jira-notes-header {

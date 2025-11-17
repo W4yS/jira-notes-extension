@@ -933,24 +933,14 @@ class JiraNotesExtension {
   
   // Сворачивание/разворачивание панели
   async togglePanelCollapse(panel) {
-    const content = panel.querySelector('.jira-notes-content');
     const minimizeBtn = panel.querySelector('.jira-notes-minimize');
     const isCollapsed = panel.classList.contains('collapsed');
     
     if (isCollapsed) {
       // Разворачиваем
+      panel.classList.remove('collapsed');
       minimizeBtn.textContent = '—';
       minimizeBtn.title = 'Свернуть';
-      
-      // Убираем inline styles если есть
-      content.style.display = '';
-      
-      // Force reflow для применения начального состояния
-      void panel.offsetHeight;
-      
-      // Убираем класс collapsed - CSS сам развернёт
-      panel.classList.remove('collapsed');
-      
       console.log('📖 Panel expanded');
       
       // Сохраняем состояние
@@ -961,12 +951,9 @@ class JiraNotesExtension {
       }
     } else {
       // Сворачиваем
+      panel.classList.add('collapsed');
       minimizeBtn.textContent = '□';
       minimizeBtn.title = 'Развернуть';
-      
-      // Добавляем класс collapsed - CSS сам свернёт
-      panel.classList.add('collapsed');
-      
       console.log('📕 Panel collapsed');
       
       // Сохраняем состояние
