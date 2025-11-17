@@ -934,12 +934,10 @@ class JiraNotesExtension {
   // Сворачивание/разворачивание панели
   async togglePanelCollapse(panel) {
     const minimizeBtn = panel.querySelector('.jira-notes-minimize');
-    const content = panel.querySelector('.jira-notes-content');
     const isCollapsed = panel.classList.contains('collapsed');
     
     if (isCollapsed) {
-      // Разворачиваем - восстанавливаем позицию и показываем контент
-      panel.classList.remove('collapsed');
+      // Разворачиваем - ОДНОВРЕМЕННО показываем контент и перемещаем вверх
       
       // Восстанавливаем сохранённую позицию
       const savedTop = panel.dataset.savedTop;
@@ -948,43 +946,38 @@ class JiraNotesExtension {
         panel.style.bottom = 'auto';
         delete panel.dataset.savedTop;
       } else {
-        // Если нет сохранённой позиции, просто убираем bottom
         panel.style.bottom = 'auto';
       }
+      
+      // Показываем контент ОДНОВРЕМЕННО с перемещением
+      panel.classList.remove('collapsed');
       
       minimizeBtn.textContent = '—';
       minimizeBtn.title = 'Свернуть';
       console.log('📖 Panel expanded');
       
-      // Сохраняем состояние
       try {
         await chrome.storage.local.set({ 'panel_collapsed': false });
       } catch (error) {
         console.error('Error saving collapse state:', error);
       }
     } else {
-      // Сворачиваем - СНАЧАЛА перемещаем вниз, ПОТОМ скрываем контент
+      // Сворачиваем - ОДНОВРЕМЕННО скрываем контент и перемещаем вниз
       
-      // Сохраняем текущую top позицию (только если она есть)
+      // Сохраняем текущую позицию
       if (panel.style.top && panel.style.top !== 'auto') {
         panel.dataset.savedTop = panel.style.top;
       }
       
-      // СНАЧАЛА перемещаем вниз страницы
+      // Перемещаем вниз и скрываем контент ОДНОВРЕМЕННО
       panel.style.top = 'auto';
       panel.style.bottom = '20px';
-      
-      // Ждём немного для начала анимации перемещения (100ms)
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      // Скрываем контент во время перемещения
       panel.classList.add('collapsed');
       
       minimizeBtn.textContent = '□';
       minimizeBtn.title = 'Развернуть';
       console.log('📕 Panel collapsed');
       
-      // Сохраняем состояние
       try {
         await chrome.storage.local.set({ 'panel_collapsed': true });
       } catch (error) {

@@ -70,22 +70,27 @@
   color: var(--jpn-color-fg-default);
   display: flex;
   flex-direction: column;
-  transition: top 0.35s cubic-bezier(0.4, 0, 0.2, 1),
-              bottom 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: top 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+              bottom 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Контент с плавным скрытием */
+/* Контент с плавным скрытием - снизу вверх */
 .jira-notes-content {
-  transition: opacity 0.25s ease,
-              max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+              padding 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   opacity: 1;
   max-height: 5000px;
+  overflow: hidden;
+  transform-origin: top;
 }
 
 /* Свернутое состояние - скрытие контента */
 .jira-notes-panel.collapsed .jira-notes-content {
   opacity: 0;
   max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
   pointer-events: none;
 }
 
