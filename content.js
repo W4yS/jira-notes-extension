@@ -149,6 +149,13 @@ class JiraNotesExtension {
     this.memoizer = new Memoizer(500);
     this.rafBatcher = new RAFBatcher();
     
+    // IndexedDB for large data storage
+    this.db = new JiraNotesDB();
+    this.dbInitialized = false;
+    
+    // Lazy loading observer for images
+    this.lazyImageObserver = null;
+    
     // Кеш для оптимизации производительности
     this.statusCache = {}; // { issueKey: status }
     this.addressCache = {}; // { issueKey: address }
@@ -268,6 +275,36 @@ class JiraNotesExtension {
     // ОЧИЩАЕМ ВСЕ СТАРЫЕ ЭЛЕМЕНТЫ при инициализации расширения
     this.cleanupOldElements();
     
+    // Initialize IndexedDB
+    try {
+      await this.db.init();
+      this.dbInitialized = true;
+      console.log('💾 IndexedDB initialized');
+      
+      // Check if migration needed
+      const stats = await this.db.getStats();
+      if (stats.totalNotes === 0 && stats.totalIssueData === 0) {
+        console.log('🔄 Checking for chrome.storage data to migrate...');
+        const chromeData = await chrome.storage.local.get(null);
+        const hasOldData = Object.keys(chromeData).some(key => 
+          key.startsWith('note_') || key.startsWith('issuedata_')
+        );
+        
+        if (hasOldData) {
+          console.log('🔄 Migrating data from chrome.storage to IndexedDB...');
+          const result = await this.db.migrateFromChromeStorage();
+          console.log(`✅ Migrated ${result.notes} notes, ${result.issueData} issue data`);
+        }
+      }
+    } catch (error) {
+      console.error('❌ Failed to initialize IndexedDB:', error);
+      console.log('⚠️ Falling back to chrome.storage');
+      this.dbInitialized = false;
+    }
+    
+    // Setup lazy loading for images
+    this.setupLazyLoading();
+    
     // Работаем только в локальном режиме
     console.log('💾 Using local storage mode');
     
@@ -343,6 +380,121 @@ class JiraNotesExtension {
     });
     
     console.log('✅ Cleanup complete');
+  }
+  
+  // Setup lazy loading for images
+  setupLazyLoading() {
+    if ('IntersectionObserver' in window) {
+      this.lazyImageObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            const img = entry.target;
+            const src = img.dataset.src;
+            if (src) {
+              img.src = src;
+              img.removeAttribute('data-src');
+              this.lazyImageObserver.unobserve(img);
+            }
+          }
+        });
+      }, {
+        rootMargin: '50px' // Load 50px before entering viewport
+      });
+      console.log('🖼️ Lazy loading observer initialized');
+    } else {
+      console.log('⚠️ IntersectionObserver not available, lazy loading disabled');
+    }
+  }
+  
+  // Add image to lazy loading
+  lazyLoadImage(img) {
+    if (this.lazyImageObserver && img.dataset.src) {
+      this.lazyImageObserver.observe(img);
+    } else if (img.dataset.src) {
+      // Fallback if no IntersectionObserver
+      img.src = img.dataset.src;
+      img.removeAttribute('data-src');
+    }
+  }
+  
+  // ========== Data Access Layer (IndexedDB with chrome.storage fallback) ==========
+  
+  async getNote(issueKey) {
+    if (this.dbInitialized) {
+      return await this.db.getNote(issueKey);
+    }
+    // Fallback to chrome.storage
+    const result = await chrome.storage.local.get(`note_${issueKey}`);
+    return result[`note_${issueKey}`] || '';
+  }
+  
+  async saveNote(issueKey, noteText) {
+    if (this.dbInitialized) {
+      await this.db.saveNote(issueKey, noteText);
+    } else {
+      await chrome.storage.local.set({ [`note_${issueKey}`]: noteText });
+    }
+  }
+  
+  async getIssueData(issueKey) {
+    if (this.dbInitialized) {
+      return await this.db.getIssueData(issueKey);
+    }
+    // Fallback to chrome.storage
+    const result = await chrome.storage.local.get(`issuedata_${issueKey}`);
+    return result[`issuedata_${issueKey}`] || null;
+  }
+  
+  async saveIssueData(issueKey, data) {
+    if (this.dbInitialized) {
+      await this.db.saveIssueData(issueKey, data);
+    } else {
+      await chrome.storage.local.set({ [`issuedata_${issueKey}`]: data });
+    }
+  }
+  
+  async getStatus(issueKey) {
+    const data = await this.getIssueData(issueKey);
+    return data?.status || null;
+  }
+  
+  async saveStatus(issueKey, statusId) {
+    const data = await this.getIssueData(issueKey) || {};
+    data.status = statusId;
+    await this.saveIssueData(issueKey, data);
+  }
+  
+  async getAddress(issueKey) {
+    const data = await this.getIssueData(issueKey);
+    return data?.address || null;
+  }
+  
+  async saveAddress(issueKey, address) {
+    const data = await this.getIssueData(issueKey) || {};
+    data.address = address;
+    await this.saveIssueData(issueKey, data);
+  }
+  
+  async getCode(issueKey) {
+    const data = await this.getIssueData(issueKey);
+    return data?.code || null;
+  }
+  
+  async saveCode(issueKey, code) {
+    const data = await this.getIssueData(issueKey) || {};
+    data.code = code;
+    await this.saveIssueData(issueKey, data);
+  }
+  
+  async getDeviceType(issueKey) {
+    const data = await this.getIssueData(issueKey);
+    return data?.deviceType || null;
+  }
+  
+  async saveDeviceType(issueKey, deviceType) {
+    const data = await this.getIssueData(issueKey) || {};
+    data.deviceType = deviceType;
+    await this.saveIssueData(issueKey, data);
   }
 
   // Определяем ключ текущей задачи
@@ -734,12 +886,8 @@ class JiraNotesExtension {
     }
 
     try {
-      const noteKey = `note_${this.currentIssueKey}`;
-      const statusKey = `status_${this.currentIssueKey}`;
-      const result = await chrome.storage.local.get([noteKey, statusKey]);
-      
-      const notes = result[noteKey] || '';
-      const status = result[statusKey] || '';
+      const notes = await this.getNote(this.currentIssueKey);
+      const status = await this.getStatus(this.currentIssueKey);
       
       const textarea = document.querySelector('.jira-notes-textarea');
       if (textarea) {
@@ -1245,28 +1393,10 @@ class JiraNotesExtension {
     }
 
     const notes = textarea.value;
-    const noteKey = `note_${this.currentIssueKey}`;
 
     try {
-      // Если включена синхронизация - сохраняем через sync service
-      if (this.syncMode === 'team' && syncService && this.syncInitialized) {
-        const currentStatus = await chrome.storage.local.get(`status_${this.currentIssueKey}`);
-        const currentAddress = await chrome.storage.local.get(`address_${this.currentIssueKey}`);
-        
-        await syncService.saveNote(this.currentIssueKey, {
-          text: notes,
-          status: currentStatus[`status_${this.currentIssueKey}`] || null,
-          address: currentAddress[`address_${this.currentIssueKey}`] || null
-        });
-        
-        console.log('💾 Notes synced for', this.currentIssueKey);
-      } else {
-        // Локальное сохранение
-        await chrome.storage.local.set({
-          [noteKey]: notes
-        });
-        console.log('📝 Notes saved locally for', this.currentIssueKey);
-      }
+      await this.saveNote(this.currentIssueKey, notes);
+      console.log('📝 Notes saved for', this.currentIssueKey);
     } catch (error) {
       if (error.message?.includes('Extension context invalidated')) {
         return; // Тихо выходим
@@ -1552,18 +1682,27 @@ class JiraNotesExtension {
         const deviceIcon = document.createElement('img');
         deviceIcon.className = 'jira-device-icon';
         
+        // Use lazy loading for device icons
+        let iconUrl;
         if (deviceType === 'apple') {
-          deviceIcon.src = chrome.runtime.getURL('icons/mac_OS_128px.svg');
+          iconUrl = chrome.runtime.getURL('icons/mac_OS_128px.svg');
           deviceIcon.title = 'Apple/MacBook';
         } else if (deviceType === 'windows') {
-          deviceIcon.src = chrome.runtime.getURL('icons/win_128.svg');
+          iconUrl = chrome.runtime.getURL('icons/win_128.svg');
           deviceIcon.title = 'Windows';
         } else {
-          deviceIcon.src = chrome.runtime.getURL('icons/other.svg');
+          iconUrl = chrome.runtime.getURL('icons/other.svg');
           deviceIcon.title = 'Другое оборудование';
         }
         
+        // Set up lazy loading
+        deviceIcon.dataset.src = iconUrl;
+        deviceIcon.setAttribute('loading', 'lazy');
         deviceIcon.setAttribute('data-issue-key', issueKey);
+        
+        // Add to lazy loading observer
+        this.lazyLoadImage(deviceIcon);
+        
         cardContainer.appendChild(deviceIcon);
       }
       

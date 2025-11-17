@@ -21,7 +21,7 @@
         "*://*.atlassian.net/browse/*",
         "*://*.atlassian.net/jira/*"
       ],
-      "js": ["content.js"],
+      "js": ["db.js", "content.js"],
       "css": ["styles.css"],
       "run_at": "document_end"
     }
@@ -43,7 +43,9 @@
         "icons/win_128.svg",
         "icons/win_48.svg",
         "icons/other.svg",
-        "templates.html"
+        "templates.html",
+        "db.js",
+        "virtual-scroller.js"
       ],
       "matches": ["*://*.atlassian.net/*"]
     }
