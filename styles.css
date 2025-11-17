@@ -70,11 +70,24 @@
   color: var(--jpn-color-fg-default);
   display: flex;
   flex-direction: column;
+  transition: top 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+              bottom 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Свернутое состояние - простое скрытие контента */
+/* Контент с плавным скрытием */
+.jira-notes-content {
+  transition: opacity 0.25s ease,
+              max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  opacity: 1;
+  max-height: 2000px;
+  overflow: hidden;
+}
+
+/* Свернутое состояние - скрытие контента */
 .jira-notes-panel.collapsed .jira-notes-content {
-  display: none !important;
+  opacity: 0;
+  max-height: 0;
+  pointer-events: none;
 }
 
 .jira-notes-header {
