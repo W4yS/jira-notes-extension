@@ -70,7 +70,10 @@
   color: var(--jpn-color-fg-default);
   display: flex;
   flex-direction: column;
-  transition: all 0.2s ease;
+  transition: all 0.4s cubic-bezier(0.32, 0.72, 0, 1),
+              transform 0.4s cubic-bezier(0.32, 0.72, 0, 1),
+              opacity 0.3s ease;
+  transform-origin: bottom right;
 }
 
 /* Свернутое состояние */
@@ -160,6 +163,22 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+  transition: opacity 0.25s cubic-bezier(0.32, 0.72, 0, 1),
+              transform 0.25s cubic-bezier(0.32, 0.72, 0, 1),
+              max-height 0.4s cubic-bezier(0.32, 0.72, 0, 1);
+  transform-origin: top;
+  opacity: 1;
+  transform: scaleY(1);
+  max-height: 1000px;
+  overflow: hidden;
+}
+
+.jira-notes-panel.collapsed .jira-notes-content {
+  opacity: 0;
+  transform: scaleY(0.3);
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
 }
 
 .jira-notes-markers-label,
