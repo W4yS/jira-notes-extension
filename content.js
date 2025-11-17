@@ -937,9 +937,13 @@ class JiraNotesExtension {
     const isCollapsed = panel.classList.contains('collapsed');
     
     if (isCollapsed) {
-      // Разворачиваем - ОДНОВРЕМЕННО показываем контент и перемещаем вверх
+      // Разворачиваем - сначала убираем класс, потом меняем позицию
+      panel.classList.remove('collapsed');
       
-      // Восстанавливаем сохранённую позицию
+      // Force reflow для применения начального состояния
+      void panel.offsetHeight;
+      
+      // Теперь меняем позицию - начнётся анимация
       const savedTop = panel.dataset.savedTop;
       if (savedTop && savedTop !== '' && savedTop !== 'undefined') {
         panel.style.top = savedTop;
@@ -948,9 +952,6 @@ class JiraNotesExtension {
       } else {
         panel.style.bottom = 'auto';
       }
-      
-      // Показываем контент ОДНОВРЕМЕННО с перемещением
-      panel.classList.remove('collapsed');
       
       minimizeBtn.textContent = '—';
       minimizeBtn.title = 'Свернуть';
@@ -962,16 +963,21 @@ class JiraNotesExtension {
         console.error('Error saving collapse state:', error);
       }
     } else {
-      // Сворачиваем - ОДНОВРЕМЕННО скрываем контент и перемещаем вниз
+      // Сворачиваем - сначала меняем позицию, потом добавляем класс
       
       // Сохраняем текущую позицию
       if (panel.style.top && panel.style.top !== 'auto') {
         panel.dataset.savedTop = panel.style.top;
       }
       
-      // Перемещаем вниз и скрываем контент ОДНОВРЕМЕННО
+      // Меняем позицию
       panel.style.top = 'auto';
       panel.style.bottom = '20px';
+      
+      // Force reflow
+      void panel.offsetHeight;
+      
+      // Теперь добавляем класс - начнётся анимация контента
       panel.classList.add('collapsed');
       
       minimizeBtn.textContent = '□';
