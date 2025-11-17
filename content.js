@@ -421,7 +421,8 @@ class JiraNotesExtension {
   
   async getNote(issueKey) {
     if (this.dbInitialized) {
-      return await this.db.getNote(issueKey);
+      const noteData = await this.db.getNote(issueKey);
+      return noteData?.text || '';
     }
     // Fallback to chrome.storage
     const result = await chrome.storage.local.get(`note_${issueKey}`);
@@ -430,7 +431,7 @@ class JiraNotesExtension {
   
   async saveNote(issueKey, noteText) {
     if (this.dbInitialized) {
-      await this.db.saveNote(issueKey, noteText);
+      await this.db.saveNote(issueKey, { text: noteText });
     } else {
       await chrome.storage.local.set({ [`note_${issueKey}`]: noteText });
     }
