@@ -949,8 +949,8 @@ class JiraNotesExtension {
         panel.style.bottom = 'auto';
       }
       
-      // Ждём следующий кадр для плавности
-      await new Promise(resolve => requestAnimationFrame(resolve));
+      // Двойной RAF для гарантированного применения стилей
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       
       // Теперь показываем контент
       panel.classList.remove('collapsed');
@@ -975,8 +975,8 @@ class JiraNotesExtension {
       // Сначала скрываем контент
       panel.classList.add('collapsed');
       
-      // Ждём следующий кадр
-      await new Promise(resolve => requestAnimationFrame(resolve));
+      // Двойной RAF для гарантированного применения
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       
       // Теперь перемещаем вниз
       panel.style.top = 'auto';
