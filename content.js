@@ -937,13 +937,9 @@ class JiraNotesExtension {
     const isCollapsed = panel.classList.contains('collapsed');
     
     if (isCollapsed) {
-      // Разворачиваем - сначала убираем класс, потом меняем позицию
-      panel.classList.remove('collapsed');
+      // Разворачиваем - сначала меняем позицию, потом показываем контент
       
-      // Force reflow для применения начального состояния
-      void panel.offsetHeight;
-      
-      // Теперь меняем позицию - начнётся анимация
+      // Восстанавливаем позицию
       const savedTop = panel.dataset.savedTop;
       if (savedTop && savedTop !== '' && savedTop !== 'undefined') {
         panel.style.top = savedTop;
@@ -952,6 +948,12 @@ class JiraNotesExtension {
       } else {
         panel.style.bottom = 'auto';
       }
+      
+      // Ждём следующий кадр для плавности
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      
+      // Теперь показываем контент
+      panel.classList.remove('collapsed');
       
       minimizeBtn.textContent = '—';
       minimizeBtn.title = 'Свернуть';
@@ -963,22 +965,22 @@ class JiraNotesExtension {
         console.error('Error saving collapse state:', error);
       }
     } else {
-      // Сворачиваем - сначала меняем позицию, потом добавляем класс
+      // Сворачиваем - сначала скрываем контент, потом двигаем вниз
       
-      // Сохраняем текущую позицию
+      // Сохраняем позицию
       if (panel.style.top && panel.style.top !== 'auto') {
         panel.dataset.savedTop = panel.style.top;
       }
       
-      // Меняем позицию
+      // Сначала скрываем контент
+      panel.classList.add('collapsed');
+      
+      // Ждём следующий кадр
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      
+      // Теперь перемещаем вниз
       panel.style.top = 'auto';
       panel.style.bottom = '20px';
-      
-      // Force reflow
-      void panel.offsetHeight;
-      
-      // Теперь добавляем класс - начнётся анимация контента
-      panel.classList.add('collapsed');
       
       minimizeBtn.textContent = '□';
       minimizeBtn.title = 'Развернуть';
