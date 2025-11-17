@@ -10,6 +10,12 @@ class JiraNotesDB {
 
   // Инициализация базы данных
   async init() {
+    // Защита от повторной инициализации
+    if (this.db) {
+      console.log('✅ IndexedDB already initialized');
+      return this.db;
+    }
+    
     return new Promise((resolve, reject) => {
       const request = indexedDB.open(this.dbName, this.version);
 
@@ -20,6 +26,17 @@ class JiraNotesDB {
 
       request.onsuccess = () => {
         this.db = request.result;
+        
+        // Обработка неожиданного закрытия
+        this.db.onversionchange = () => {
+          this.db.close();
+          console.warn('⚠️ Database version changed, closing connection');
+        };
+        
+        this.db.onerror = (event) => {
+          console.error('❌ Database error:', event.target.error);
+        };
+        
         console.log('✅ IndexedDB initialized');
         resolve(this.db);
       };
@@ -58,32 +75,54 @@ class JiraNotesDB {
   // === Notes Operations ===
 
   async saveNote(issueKey, data) {
+    if (!issueKey || typeof issueKey !== 'string') {
+      throw new Error('Invalid issueKey provided');
+    }
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+    
     return new Promise((resolve, reject) => {
-      const transaction = this.db.transaction(['notes'], 'readwrite');
-      const store = transaction.objectStore('notes');
+      try {
+        const transaction = this.db.transaction(['notes'], 'readwrite');
+        const store = transaction.objectStore('notes');
 
-      const noteData = {
-        issueKey,
-        text: data.text || '',
-        statusId: data.statusId || null,
-        updatedAt: Date.now()
-      };
+        const noteData = {
+          issueKey,
+          text: data?.text || '',
+          statusId: data?.statusId || null,
+          updatedAt: Date.now()
+        };
 
-      const request = store.put(noteData);
+        const request = store.put(noteData);
 
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      } catch (error) {
+        reject(error);
+      }
     });
   }
 
   async getNote(issueKey) {
+    if (!issueKey || typeof issueKey !== 'string') {
+      throw new Error('Invalid issueKey provided');
+    }
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+    
     return new Promise((resolve, reject) => {
-      const transaction = this.db.transaction(['notes'], 'readonly');
-      const store = transaction.objectStore('notes');
-      const request = store.get(issueKey);
+      try {
+        const transaction = this.db.transaction(['notes'], 'readonly');
+        const store = transaction.objectStore('notes');
+        const request = store.get(issueKey);
 
-      request.onsuccess = () => resolve(request.result || null);
-      request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve(request.result || null);
+        request.onerror = () => reject(request.error);
+      } catch (error) {
+        reject(error);
+      }
     });
   }
 
@@ -136,32 +175,54 @@ class JiraNotesDB {
   // === Issue Data Operations ===
 
   async saveIssueData(issueKey, data) {
+    if (!issueKey || typeof issueKey !== 'string') {
+      throw new Error('Invalid issueKey provided');
+    }
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+    
     return new Promise((resolve, reject) => {
-      const transaction = this.db.transaction(['issueData'], 'readwrite');
-      const store = transaction.objectStore('issueData');
+      try {
+        const transaction = this.db.transaction(['issueData'], 'readwrite');
+        const store = transaction.objectStore('issueData');
 
-      const issueData = {
-        issueKey,
-        fields: data.fields || {},
-        deviceType: data.deviceType || null,
-        extractedAt: Date.now()
-      };
+        const issueData = {
+          issueKey,
+          fields: data?.fields || {},
+          deviceType: data?.deviceType || null,
+          extractedAt: Date.now()
+        };
 
-      const request = store.put(issueData);
+        const request = store.put(issueData);
 
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      } catch (error) {
+        reject(error);
+      }
     });
   }
 
   async getIssueData(issueKey) {
+    if (!issueKey || typeof issueKey !== 'string') {
+      throw new Error('Invalid issueKey provided');
+    }
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+    
     return new Promise((resolve, reject) => {
-      const transaction = this.db.transaction(['issueData'], 'readonly');
-      const store = transaction.objectStore('issueData');
-      const request = store.get(issueKey);
+      try {
+        const transaction = this.db.transaction(['issueData'], 'readonly');
+        const store = transaction.objectStore('issueData');
+        const request = store.get(issueKey);
 
-      request.onsuccess = () => resolve(request.result || null);
-      request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve(request.result || null);
+        request.onerror = () => reject(request.error);
+      } catch (error) {
+        reject(error);
+      }
     });
   }
 
@@ -246,41 +307,66 @@ class JiraNotesDB {
       const allData = await chrome.storage.local.get(null);
       let migratedNotes = 0;
       let migratedIssueData = 0;
+      const errors = [];
 
       // Migrate notes and statuses
       const noteKeys = Object.keys(allData).filter(key => key.startsWith('note_'));
 
       for (const noteKey of noteKeys) {
-        const issueKey = noteKey.replace('note_', '');
-        const statusKey = `status_${issueKey}`;
+        try {
+          const issueKey = noteKey.replace('note_', '');
+          if (!issueKey) continue; // Skip invalid keys
+          
+          const statusKey = `status_${issueKey}`;
 
-        const noteData = {
-          text: allData[noteKey] || '',
-          statusId: allData[statusKey] || null
-        };
+          const noteData = {
+            text: allData[noteKey] || '',
+            statusId: allData[statusKey] || null
+          };
 
-        await this.saveNote(issueKey, noteData);
-        migratedNotes++;
+          await this.saveNote(issueKey, noteData);
+          migratedNotes++;
+        } catch (error) {
+          errors.push({ key: noteKey, error: error.message });
+          console.warn(`⚠️ Failed to migrate note ${noteKey}:`, error);
+        }
       }
 
       // Migrate issue data
       const issueDataKeys = Object.keys(allData).filter(key => key.startsWith('issuedata_'));
 
       for (const dataKey of issueDataKeys) {
-        const issueKey = dataKey.replace('issuedata_', '');
-        const deviceTypeKey = `devicetype_${issueKey}`;
+        try {
+          const issueKey = dataKey.replace('issuedata_', '');
+          if (!issueKey) continue; // Skip invalid keys
+          
+          const deviceTypeKey = `devicetype_${issueKey}`;
 
-        const issueData = {
-          fields: allData[dataKey]?.fields || {},
-          deviceType: allData[deviceTypeKey] || null
-        };
+          const issueData = {
+            fields: allData[dataKey]?.fields || {},
+            deviceType: allData[deviceTypeKey] || null
+          };
 
-        await this.saveIssueData(issueKey, issueData);
-        migratedIssueData++;
+          await this.saveIssueData(issueKey, issueData);
+          migratedIssueData++;
+        } catch (error) {
+          errors.push({ key: dataKey, error: error.message });
+          console.warn(`⚠️ Failed to migrate issue data ${dataKey}:`, error);
+        }
       }
 
+      const result = { 
+        notes: migratedNotes, 
+        issueData: migratedIssueData,
+        errors: errors.length 
+      };
+      
       console.log(`✅ Migration complete: ${migratedNotes} notes, ${migratedIssueData} issue data entries`);
-      return { notes: migratedNotes, issueData: migratedIssueData };
+      if (errors.length > 0) {
+        console.warn(`⚠️ ${errors.length} items failed to migrate:`, errors);
+      }
+      
+      return result;
 
     } catch (error) {
       console.error('❌ Migration failed:', error);

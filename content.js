@@ -143,6 +143,7 @@ class JiraNotesExtension {
     this.notesContainer = null;
     this.initialized = false;
     this.isUpdating = false; // Флаг для предотвращения множественных обновлений
+    this._updateInProgress = false; // Защита от race conditions
     this.officeDetectionEnabled = true; // По умолчанию включено
     
     // Performance utilities
@@ -420,37 +421,83 @@ class JiraNotesExtension {
   // ========== Data Access Layer (IndexedDB with chrome.storage fallback) ==========
   
   async getNote(issueKey) {
-    if (this.dbInitialized) {
-      const noteData = await this.db.getNote(issueKey);
-      return noteData?.text || '';
+    try {
+      if (this.dbInitialized) {
+        const noteData = await this.db.getNote(issueKey);
+        return noteData?.text || '';
+      }
+      // Fallback to chrome.storage
+      const result = await chrome.storage.local.get(`note_${issueKey}`);
+      return result[`note_${issueKey}`] || '';
+    } catch (error) {
+      console.error('❌ Error getting note:', error);
+      // Fallback to chrome.storage on error
+      try {
+        const result = await chrome.storage.local.get(`note_${issueKey}`);
+        return result[`note_${issueKey}`] || '';
+      } catch (fallbackError) {
+        console.error('❌ Fallback also failed:', fallbackError);
+        return '';
+      }
     }
-    // Fallback to chrome.storage
-    const result = await chrome.storage.local.get(`note_${issueKey}`);
-    return result[`note_${issueKey}`] || '';
   }
   
   async saveNote(issueKey, noteText) {
-    if (this.dbInitialized) {
-      await this.db.saveNote(issueKey, { text: noteText });
-    } else {
-      await chrome.storage.local.set({ [`note_${issueKey}`]: noteText });
+    try {
+      if (this.dbInitialized) {
+        await this.db.saveNote(issueKey, { text: noteText });
+      } else {
+        await chrome.storage.local.set({ [`note_${issueKey}`]: noteText });
+      }
+    } catch (error) {
+      console.error('❌ Error saving note:', error);
+      // Fallback to chrome.storage on error
+      try {
+        await chrome.storage.local.set({ [`note_${issueKey}`]: noteText });
+        console.log('✅ Note saved to chrome.storage as fallback');
+      } catch (fallbackError) {
+        console.error('❌ Fallback save also failed:', fallbackError);
+        throw fallbackError;
+      }
     }
   }
   
   async getIssueData(issueKey) {
-    if (this.dbInitialized) {
-      return await this.db.getIssueData(issueKey);
+    try {
+      if (this.dbInitialized) {
+        return await this.db.getIssueData(issueKey);
+      }
+      // Fallback to chrome.storage
+      const result = await chrome.storage.local.get(`issuedata_${issueKey}`);
+      return result[`issuedata_${issueKey}`] || null;
+    } catch (error) {
+      console.error('❌ Error getting issue data:', error);
+      try {
+        const result = await chrome.storage.local.get(`issuedata_${issueKey}`);
+        return result[`issuedata_${issueKey}`] || null;
+      } catch (fallbackError) {
+        console.error('❌ Fallback also failed:', fallbackError);
+        return null;
+      }
     }
-    // Fallback to chrome.storage
-    const result = await chrome.storage.local.get(`issuedata_${issueKey}`);
-    return result[`issuedata_${issueKey}`] || null;
   }
   
   async saveIssueData(issueKey, data) {
-    if (this.dbInitialized) {
-      await this.db.saveIssueData(issueKey, data);
-    } else {
-      await chrome.storage.local.set({ [`issuedata_${issueKey}`]: data });
+    try {
+      if (this.dbInitialized) {
+        await this.db.saveIssueData(issueKey, data);
+      } else {
+        await chrome.storage.local.set({ [`issuedata_${issueKey}`]: data });
+      }
+    } catch (error) {
+      console.error('❌ Error saving issue data:', error);
+      try {
+        await chrome.storage.local.set({ [`issuedata_${issueKey}`]: data });
+        console.log('✅ Issue data saved to chrome.storage as fallback');
+      } catch (fallbackError) {
+        console.error('❌ Fallback save also failed:', fallbackError);
+        throw fallbackError;
+      }
     }
   }
   
@@ -1482,7 +1529,13 @@ class JiraNotesExtension {
       return;
     }
     
-    // УБИРАЕМ debouncing и проверку isUpdating - обрабатываем мгновенно
+    // Защита от race conditions
+    if (this._updateInProgress) {
+      console.log('⏳ Update already in progress, skipping');
+      return;
+    }
+    this._updateInProgress = true;
+    
     const now = Date.now();
     this.lastUpdateTime = now;
     
@@ -1565,6 +1618,8 @@ class JiraNotesExtension {
       } else {
         console.error('❌ Error updating cards:', error);
       }
+    } finally {
+      this._updateInProgress = false;
     }
   }
 
