@@ -969,10 +969,10 @@ class JiraNotesExtension {
       panel.style.top = 'auto';
       panel.style.bottom = '20px';
       
-      // Ждём завершения анимации перемещения (350ms)
-      await new Promise(resolve => setTimeout(resolve, 350));
+      // Ждём немного для начала анимации перемещения (100ms)
+      await new Promise(resolve => setTimeout(resolve, 100));
       
-      // ПОТОМ скрываем контент
+      // Скрываем контент во время перемещения
       panel.classList.add('collapsed');
       
       minimizeBtn.textContent = '□';
