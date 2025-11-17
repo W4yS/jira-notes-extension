@@ -1511,8 +1511,8 @@ class JiraNotesExtension {
     if (!this._updateAllCardsDebounced) {
       this._updateAllCardsDebounced = debounceLeading(
         () => this._updateAllCardsImpl(),
-        200,
-        { leading: true, trailing: true, maxWait: 500 }
+        1000, // Увеличен для уменьшения дергания при скролле
+        { leading: false, trailing: true, maxWait: 2000 } // leading: false важно!
       );
     }
     return this._updateAllCardsDebounced();
@@ -1600,10 +1600,17 @@ class JiraNotesExtension {
           const isVisible = rect.top < window.innerHeight + 200 && rect.bottom > -200;
           
           if (isVisible) {
-            // Сбрасываем флаг только для видимых карточек для перерисовки
-            cardContainer.removeAttribute('data-jira-processed');
-            this.processCard(cardContainer);
-            processedCount++;
+            // НЕ сбрасываем флаг - просто обновляем данные без перерисовки
+            const link = cardContainer.querySelector('a[href*="/browse/"], a[href*="selectedIssue="]');
+            if (link) {
+              const href = link.href || '';
+              const issueMatch = href.match(/([A-Z]+-\d+)/);
+              if (issueMatch) {
+                const issueKey = issueMatch[1];
+                this._applyCardModifications(cardContainer, link, issueKey);
+                processedCount++;
+              }
+            }
           }
         });
         
@@ -1696,14 +1703,15 @@ class JiraNotesExtension {
         if (!issueMatch) return;
         
         const issueKey = issueMatch[1];
-        
-        // Проверяем что не обработано
-        if (cardContainer.hasAttribute('data-jira-processed')) return;
+        const isProcessed = cardContainer.hasAttribute('data-jira-processed');
         
         // Все DOM манипуляции в write фазе
         this.rafBatcher.scheduleWrite(() => {
-          cardContainer.setAttribute('data-jira-processed', 'true');
-          cardContainer.style.position = 'relative';
+          // Отмечаем как обработанную только при первой обработке
+          if (!isProcessed) {
+            cardContainer.setAttribute('data-jira-processed', 'true');
+            cardContainer.style.position = 'relative';
+          }
           this._applyCardModifications(cardContainer, link, issueKey);
         });
       });
