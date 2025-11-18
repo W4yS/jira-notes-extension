@@ -897,37 +897,44 @@ class JiraNotesExtension {
       const result = await chrome.storage.local.get(['panel_position']);
       const position = result.panel_position;
 
-      if (position && position.left && position.top) {
+      if (position && position.left !== undefined && position.top !== undefined) {
         // Парсим значения (могут быть как числа, так и строки с 'px')
         const savedLeft = parseInt(position.left);
         const savedTop = parseInt(position.top);
         
-        // Проверяем, что позиция в пределах экрана
-        const maxLeft = window.innerWidth - 300; // 280px ширина панели + запас
-        const maxTop = window.innerHeight - 200; // минимальная высота панели
-        
-        const safeLeft = Math.max(20, Math.min(savedLeft, maxLeft));
-        const safeTop = Math.max(20, Math.min(savedTop, maxTop));
-        
-        console.log(` Restoring position: saved(${savedLeft}, ${savedTop}) -> safe(${safeLeft}, ${safeTop}), screen(${window.innerWidth}x${window.innerHeight})`);
-        
-        panel.style.left = safeLeft + 'px';
-        panel.style.top = safeTop + 'px';
-        panel.style.right = 'auto';
-      } else {
-        // Позиция по умолчанию - правый верхний угол
-        const defaultLeft = window.innerWidth - 300;
-        panel.style.left = defaultLeft + 'px';
-        panel.style.top = '20px';
-        panel.style.right = 'auto';
-        console.log(` Using default position: (${defaultLeft}, 20), screen(${window.innerWidth}x${window.innerHeight})`);
+        // Проверяем что значения валидные
+        if (!isNaN(savedLeft) && !isNaN(savedTop)) {
+          // Проверяем, что позиция в пределах экрана
+          const maxLeft = window.innerWidth - 350; // 320px ширина панели + запас
+          const maxTop = window.innerHeight - 200; // минимальная высота панели
+          
+          const safeLeft = Math.max(20, Math.min(savedLeft, maxLeft));
+          const safeTop = Math.max(20, Math.min(savedTop, maxTop));
+          
+          console.log(` Restoring position: saved(${savedLeft}, ${savedTop}) -> safe(${safeLeft}, ${safeTop}), screen(${window.innerWidth}x${window.innerHeight})`);
+          
+          panel.style.left = safeLeft + 'px';
+          panel.style.top = safeTop + 'px';
+          panel.style.right = 'auto';
+          panel.style.bottom = 'auto';
+          return;
+        }
       }
+      
+      // Позиция по умолчанию - правый верхний угол
+      const defaultLeft = window.innerWidth - 350;
+      panel.style.left = defaultLeft + 'px';
+      panel.style.top = '20px';
+      panel.style.right = 'auto';
+      panel.style.bottom = 'auto';
+      console.log(` Using default position: (${defaultLeft}, 20), screen(${window.innerWidth}x${window.innerHeight})`);
     } catch (error) {
       console.error('Error restoring position:', error);
       // Fallback на правый верхний угол
-      panel.style.left = (window.innerWidth - 300) + 'px';
+      panel.style.left = (window.innerWidth - 350) + 'px';
       panel.style.top = '20px';
       panel.style.right = 'auto';
+      panel.style.bottom = 'auto';
     }
   }
   
@@ -1780,6 +1787,9 @@ class JiraNotesExtension {
   setupObserver() {
     let lastIssueKey = this.currentIssueKey;
 
+    // Set для отслеживания уже наблюдаемых карточек (предотвращает дубликаты)
+    const observedCards = new WeakSet();
+
     // МГНОВЕННАЯ ОБРАБОТКА: IntersectionObserver для видимых карточек
     const intersectionObserver = new IntersectionObserver((entries) => {
       entries.forEach(entry => {
@@ -1986,26 +1996,32 @@ class JiraNotesExtension {
           
           // Новая карточка появилась в DOM
           if (node.matches && node.matches('[data-testid="software-board.board-container.board.card-container.card-with-icc"]')) {
-            console.log('🆕 New card detected, observing:', node);
-            intersectionObserver.observe(node);
-            
-            // Если карточка УЖЕ видима - обрабатываем мгновенно
-            const rect = node.getBoundingClientRect();
-            if (rect.top < window.innerHeight && rect.bottom > 0) {
-              this.processCard(node);
+            // Проверяем, не наблюдаем ли уже за этой карточкой
+            if (!observedCards.has(node)) {
+              observedCards.add(node);
+              intersectionObserver.observe(node);
+              
+              // Если карточка УЖЕ видима - обрабатываем мгновенно
+              const rect = node.getBoundingClientRect();
+              if (rect.top < window.innerHeight && rect.bottom > 0) {
+                this.processCard(node);
+              }
             }
           }
           // Или внутри добавленного узла есть карточки
           else if (node.querySelectorAll) {
             const cards = node.querySelectorAll('[data-testid="software-board.board-container.board.card-container.card-with-icc"]');
             cards.forEach(card => {
-              console.log('🆕 New card detected (nested), observing:', card);
-              intersectionObserver.observe(card);
-              
-              // Если карточка УЖЕ видима - обрабатываем мгновенно
-              const rect = card.getBoundingClientRect();
-              if (rect.top < window.innerHeight && rect.bottom > 0) {
-                this.processCard(card);
+              // Проверяем, не наблюдаем ли уже за этой карточкой
+              if (!observedCards.has(card)) {
+                observedCards.add(card);
+                intersectionObserver.observe(card);
+                
+                // Если карточка УЖЕ видима - обрабатываем мгновенно
+                const rect = card.getBoundingClientRect();
+                if (rect.top < window.innerHeight && rect.bottom > 0) {
+                  this.processCard(card);
+                }
               }
             });
           }
@@ -2038,12 +2054,16 @@ class JiraNotesExtension {
       console.log(`👀 Setting up instant observation for ${existingCards.length} existing cards`);
       
       existingCards.forEach(card => {
-        intersectionObserver.observe(card);
-        
-        // Если карточка УЖЕ видима - обрабатываем мгновенно
-        const rect = card.getBoundingClientRect();
-        if (rect.top < window.innerHeight && rect.bottom > 0) {
-          this.processCard(card);
+        // Добавляем в WeakSet перед наблюдением
+        if (!observedCards.has(card)) {
+          observedCards.add(card);
+          intersectionObserver.observe(card);
+          
+          // Если карточка УЖЕ видима - обрабатываем мгновенно
+          const rect = card.getBoundingClientRect();
+          if (rect.top < window.innerHeight && rect.bottom > 0) {
+            this.processCard(card);
+          }
         }
       });
     };
