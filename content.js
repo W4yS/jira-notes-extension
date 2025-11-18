@@ -1073,6 +1073,8 @@ class JiraNotesExtension {
     // Ранний выход если адрес уже в кеше
     if (this.currentIssueKey && this.addressCache[this.currentIssueKey]) {
       console.log(`✓ Address in cache: ${this.currentIssueKey}`);
+      // Обновляем карточку даже если адрес в кеше (для мгновенного отображения)
+      this.updateSingleCard(this.currentIssueKey);
       return;
     }
     
@@ -1155,6 +1157,8 @@ class JiraNotesExtension {
     // Ранний выход если код уже в кеше
     if (this.currentIssueKey && this.codeCache[this.currentIssueKey]) {
       console.log(`✓ Office code in cache: ${this.currentIssueKey} -> ${this.codeCache[this.currentIssueKey]}`);
+      // Обновляем карточку даже если код в кеше (для мгновенного отображения)
+      this.updateSingleCard(this.currentIssueKey);
       return;
     }
     
@@ -1646,29 +1650,49 @@ class JiraNotesExtension {
   }
 
   // НОВЫЙ МЕТОД: Мгновенное обновление одной конкретной карточки (без debounce)
-  updateSingleCard(issueKey) {
+  updateSingleCard(issueKey, retryCount = 0) {
     if (!issueKey) return;
     
-    // Ищем карточку с этим issue key
-    const allCards = document.querySelectorAll('[data-testid="software-board.board-container.board.card-container.card-with-icc"]');
+    // Внутренняя функция для попытки обновления
+    const tryUpdate = () => {
+      const allCards = document.querySelectorAll('[data-testid="software-board.board-container.board.card-container.card-with-icc"]');
+      
+      for (const card of allCards) {
+        const link = card.querySelector('a[href*="/browse/"], a[href*="selectedIssue="]');
+        if (!link) continue;
+        
+        const href = link.href || '';
+        const issueMatch = href.match(/([A-Z]+-\d+)/);
+        if (!issueMatch || issueMatch[1] !== issueKey) continue;
+        
+        // Найдена нужная карточка - обновляем её немедленно
+        console.log(`⚡ Instant update card: ${issueKey} (attempt ${retryCount + 1})`);
+        
+        // Используем RAF для плавного обновления
+        this.rafBatcher.scheduleWrite(() => {
+          this._applyCardModifications(card, link, issueKey);
+        });
+        
+        return true; // Успешно обновлена
+      }
+      return false; // Не найдена
+    };
     
-    for (const card of allCards) {
-      const link = card.querySelector('a[href*="/browse/"], a[href*="selectedIssue="]');
-      if (!link) continue;
+    // Первая попытка обновления
+    if (tryUpdate()) {
+      return; // Успешно - выходим
+    }
+    
+    // Карточка не найдена - пробуем еще раз через короткую задержку
+    if (retryCount < 2) { // Максимум 2 retry (итого 3 попытки)
+      const delay = retryCount === 0 ? 50 : 150; // 0ms → 50ms → 200ms
+      console.log(`⏳ Card not found, retrying in ${delay}ms: ${issueKey}`);
       
-      const href = link.href || '';
-      const issueMatch = href.match(/([A-Z]+-\d+)/);
-      if (!issueMatch || issueMatch[1] !== issueKey) continue;
-      
-      // Найдена нужная карточка - обновляем её немедленно
-      console.log(`⚡ Instant update card: ${issueKey}`);
-      
-      // Используем RAF для плавного обновления
-      this.rafBatcher.scheduleWrite(() => {
-        this._applyCardModifications(card, link, issueKey);
-      });
-      
-      break; // Нашли и обновили - выходим
+      setTimeout(() => {
+        this.updateSingleCard(issueKey, retryCount + 1);
+      }, delay);
+    } else {
+      console.log(`⚠️ Card not found after ${retryCount + 1} attempts, will update via updateAllCards: ${issueKey}`);
     }
   }
   
