@@ -1899,6 +1899,22 @@ class JiraNotesExtension {
     
     // Вспомогательный метод для применения модификаций карточки
     this._applyCardModifications = (cardContainer, link, issueKey) => {
+      // Если контекст расширения недействителен (обновление/перезагрузка) — тихо выходим
+      if (!chrome.runtime?.id) {
+        return;
+      }
+
+      // Безопасный доступ к ресурсам расширения (предотвращает Extension context invalidated)
+      const safeGetUrl = (path) => {
+        try {
+          if (chrome.runtime?.id && typeof chrome.runtime.getURL === 'function') {
+            return chrome.runtime.getURL(path);
+          }
+        } catch (e) {
+          return null;
+        }
+        return null;
+      };
       // Статус - обновляем существующий или создаем новый
       let statusDot = cardContainer.querySelector('.jira-personal-status');
       if (this.statusCache[issueKey]) {
@@ -1942,21 +1958,25 @@ class JiraNotesExtension {
         let iconUrl;
         let title;
         if (deviceType === 'apple') {
-          iconUrl = chrome.runtime.getURL('icons/mac_OS_128px.svg');
+          iconUrl = safeGetUrl('icons/mac_OS_128px.svg');
           title = 'Apple/MacBook';
         } else if (deviceType === 'windows') {
-          iconUrl = chrome.runtime.getURL('icons/win_128.svg');
+          iconUrl = safeGetUrl('icons/win_128.svg');
           title = 'Windows';
         } else {
-          iconUrl = chrome.runtime.getURL('icons/other.svg');
+          iconUrl = safeGetUrl('icons/other.svg');
           title = 'Другое оборудование';
         }
         
         // Обновляем только если изменилось
-        if (deviceIcon.dataset.src !== iconUrl && deviceIcon.src !== iconUrl) {
+        if (iconUrl && deviceIcon.dataset.src !== iconUrl && deviceIcon.src !== iconUrl) {
           deviceIcon.dataset.src = iconUrl;
           deviceIcon.title = title;
-          this.lazyLoadImage(deviceIcon);
+          try {
+            this.lazyLoadImage(deviceIcon);
+          } catch (e) {
+            // Игнорируем если контекст недействителен
+          }
         }
       } else if (deviceIcon) {
         // Удаляем если тип устройства был удален
