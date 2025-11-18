@@ -1055,10 +1055,10 @@ class JiraNotesExtension {
       // НОВОЕ: Извлекаем и сохраняем ВСЕ данные из карточки
       await this.extractAndSaveAllIssueData();
       
-      // Обновляем карточки на доске
-      setTimeout(() => {
-        this.updateAllCards();
-      }, 500);
+      // ФОРСИРУЕМ немедленное обновление ВСЕХ карточек на доске (без debounce)
+      // Это нужно чтобы новые данные (офис, адрес) сразу отобразились на всех карточках
+      // forceAll=true обновляет ВСЕ карточки, не только видимые
+      this._updateAllCardsImpl(true);
     } catch (error) {
       if (error.message?.includes('Extension context invalidated')) {
         console.log('🔄 Расширение было обновлено. Обновите страницу (F5) для продолжения работы.');
@@ -1104,9 +1104,6 @@ class JiraNotesExtension {
             
             // МГНОВЕННО обновляем конкретную карточку
             this.updateSingleCard(this.currentIssueKey);
-            
-            // И планируем обновление всех карточек (для новых)
-            this.updateAllCards();
           } else {
             console.log(`✓ Address unchanged, skip update`);
           }
@@ -1244,9 +1241,6 @@ class JiraNotesExtension {
             
             // МГНОВЕННО обновляем конкретную карточку
             this.updateSingleCard(this.currentIssueKey);
-            
-            // И планируем обновление всех карточек (для новых)
-            this.updateAllCards();
           } else {
             console.log(`✓ Office code unchanged, skip update`);
           }
@@ -1696,7 +1690,7 @@ class JiraNotesExtension {
     }
   }
   
-  async _updateAllCardsImpl() {
+  async _updateAllCardsImpl(forceAll = false) {
     // Проверяем, что контекст расширения еще валиден
     if (!chrome.runtime?.id) {
       // Показываем уведомление пользователю один раз
@@ -1749,7 +1743,7 @@ class JiraNotesExtension {
       const deviceTypeChanged = Object.keys(this.deviceTypeCache).length !== Object.keys(newDeviceTypeCache).length ||
                                 !this.compareObjects(this.deviceTypeCache, newDeviceTypeCache);
       
-      if (statusChanged || addressChanged || codeChanged || deviceTypeChanged) {
+      if (forceAll || statusChanged || addressChanged || codeChanged || deviceTypeChanged) {
         this.statusCache = newStatusCache;
         this.addressCache = newAddressCache;
         this.codeCache = newCodeCache;
@@ -1762,6 +1756,7 @@ class JiraNotesExtension {
         console.log(`📦 Cache updated: ${Object.keys(this.statusCache).length} statuses, ${Object.keys(this.addressCache).length} addresses, ${Object.keys(this.codeCache).length} codes`);
         
         // ОПТИМИЗАЦИЯ: обрабатываем только ВИДИМЫЕ карточки при скролле
+        // Но если forceAll=true - обрабатываем ВСЕ
         const allCards = document.querySelectorAll('[data-testid="software-board.board-container.board.card-container.card-with-icc"]');
         
         if (allCards.length === 0) {
@@ -1769,15 +1764,19 @@ class JiraNotesExtension {
           return;
         }
         
-        console.log(`🎴 Found ${allCards.length} cards, processing only visible ones`);
+        if (forceAll) {
+          console.log(`🎴 Found ${allCards.length} cards, processing ALL (forced update)`);
+        } else {
+          console.log(`🎴 Found ${allCards.length} cards, processing only visible ones`);
+        }
         
         let processedCount = 0;
         allCards.forEach(cardContainer => {
-          // Проверяем видимость карточки
+          // Проверяем видимость карточки только если НЕ forceAll
           const rect = cardContainer.getBoundingClientRect();
           const isVisible = rect.top < window.innerHeight + 200 && rect.bottom > -200;
           
-          if (isVisible) {
+          if (forceAll || isVisible) {
             // НЕ сбрасываем флаг - просто обновляем данные без перерисовки
             const link = cardContainer.querySelector('a[href*="/browse/"], a[href*="selectedIssue="]');
             if (link) {
@@ -1792,7 +1791,7 @@ class JiraNotesExtension {
           }
         });
         
-        console.log(`✅ Processed ${processedCount} visible cards out of ${allCards.length}`);
+        console.log(`✅ Processed ${processedCount} ${forceAll ? 'cards (ALL)' : 'visible cards'} out of ${allCards.length}`);
       } else {
         console.log('✅ Cache unchanged, skipping update');
       }
