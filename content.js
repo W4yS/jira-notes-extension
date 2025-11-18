@@ -1100,7 +1100,10 @@ class JiraNotesExtension {
             });
             console.log(`💾 Address saved: ${this.currentIssueKey} -> ${address.substring(0, 30)}...`);
             
-            // Обновляем карточки без задержки
+            // МГНОВЕННО обновляем конкретную карточку
+            this.updateSingleCard(this.currentIssueKey);
+            
+            // И планируем обновление всех карточек (для новых)
             this.updateAllCards();
           } else {
             console.log(`✓ Address unchanged, skip update`);
@@ -1235,7 +1238,10 @@ class JiraNotesExtension {
             });
             console.log(`💾 Office code saved: ${this.currentIssueKey} -> ${foundCode}`);
             
-            // Обновляем карточки без задержки
+            // МГНОВЕННО обновляем конкретную карточку
+            this.updateSingleCard(this.currentIssueKey);
+            
+            // И планируем обновление всех карточек (для новых)
             this.updateAllCards();
           } else {
             console.log(`✓ Office code unchanged, skip update`);
@@ -1597,6 +1603,16 @@ class JiraNotesExtension {
       // Обновляем отображение в панели
       this.displayCurrentStatus(status);
       
+      // Обновляем кеш и мгновенно обновляем карточку
+      if (status) {
+        this.statusCache[this.currentIssueKey] = status;
+      } else {
+        delete this.statusCache[this.currentIssueKey];
+      }
+      
+      // МГНОВЕННО обновляем конкретную карточку
+      this.updateSingleCard(this.currentIssueKey);
+      
       // Обновляем все карточки на доске
       this.updateAllCards();
     } catch (error) {
@@ -1627,6 +1643,33 @@ class JiraNotesExtension {
       );
     }
     return this._updateAllCardsDebounced();
+  }
+
+  // НОВЫЙ МЕТОД: Мгновенное обновление одной конкретной карточки (без debounce)
+  updateSingleCard(issueKey) {
+    if (!issueKey) return;
+    
+    // Ищем карточку с этим issue key
+    const allCards = document.querySelectorAll('[data-testid="software-board.board-container.board.card-container.card-with-icc"]');
+    
+    for (const card of allCards) {
+      const link = card.querySelector('a[href*="/browse/"], a[href*="selectedIssue="]');
+      if (!link) continue;
+      
+      const href = link.href || '';
+      const issueMatch = href.match(/([A-Z]+-\d+)/);
+      if (!issueMatch || issueMatch[1] !== issueKey) continue;
+      
+      // Найдена нужная карточка - обновляем её немедленно
+      console.log(`⚡ Instant update card: ${issueKey}`);
+      
+      // Используем RAF для плавного обновления
+      this.rafBatcher.scheduleWrite(() => {
+        this._applyCardModifications(card, link, issueKey);
+      });
+      
+      break; // Нашли и обновили - выходим
+    }
   }
   
   async _updateAllCardsImpl() {
