@@ -21,7 +21,7 @@
         "*://*.atlassian.net/browse/*",
         "*://*.atlassian.net/jira/*"
       ],
-      "js": ["db.js", "content.js"],
+      "js": ["db.js", "parser.js", "renderer.js", "content.js"],
       "css": ["styles.css"],
       "run_at": "document_end"
     }

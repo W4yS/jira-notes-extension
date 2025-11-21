@@ -49,8 +49,8 @@ async function loadSettings() {
   const { copypasteTemplate } = await chrome.storage.local.get('copypasteTemplate');
   document.getElementById('copypasteTemplate').value = copypasteTemplate || ``;
 
-  // Available Fields for Template
-  await loadAvailableFields();
+  // Available Fields for Template - DEPRECATED: Now using smart placeholders
+  // await loadAvailableFields();
 }
 
 async function loadCustomStatuses() {
@@ -386,13 +386,14 @@ function setupEventListeners() {
   });
 
   // --- Template Logic ---
+  
+  // Save Template Button
   document.getElementById('saveTemplateBtn').addEventListener('click', () => {
     const template = document.getElementById('copypasteTemplate').value;
     chrome.storage.local.set({ copypasteTemplate: template }, () => {
-      // Optional: show a confirmation message
       const btn = document.getElementById('saveTemplateBtn');
       const originalText = btn.textContent;
-      btn.textContent = 'Сохранено!';
+      btn.textContent = '✅ Сохранено!';
       btn.classList.add('btn-success');
       setTimeout(() => {
         btn.textContent = originalText;
@@ -401,58 +402,91 @@ function setupEventListeners() {
     });
   });
 
-  document.getElementById('previewTemplateBtn').addEventListener('click', async () => {
-    const template = document.getElementById('copypasteTemplate').value;
-    const previewBox = document.getElementById('templatePreviewBox');
-    const previewContent = document.getElementById('templatePreviewContent');
-    previewBox.style.display = 'block'; // Показываем блок превью сразу
+  // Insert Placeholder Button
+  document.getElementById('insertPlaceholderBtn').addEventListener('click', () => {
+    const textarea = document.getElementById('copypasteTemplate');
+    const placeholders = [
+      '{{ФИО}}', 
+      '{{АДРЕС}}', 
+      '{{ТЕЛЕГРАМ}}', 
+      '{{ТЕЛЕФОН}}', 
+      '{{ОБОРУДОВАНИЕ}}', 
+      '{{ПЕРИФЕРИЯ}}', 
+      '{{СОДЕРЖАНИЕ}}'
+    ];
+    
+    // Удаляем старое меню если открыто
+    const oldMenu = document.querySelector('.placeholder-menu');
+    if (oldMenu) oldMenu.remove();
 
-    try {
-        // 1. Получаем все данные из хранилища
-        const allData = await chrome.storage.local.get(null);
-        const issueDataEntries = Object.values(allData).filter(
-            (value) => value && value.issueKey && value.fields && value.extractedAt
-        );
+    // Создаем меню без inline стилей (тёмная тема поддерживается через CSS)
+    const menu = document.createElement('div');
+    menu.className = 'placeholder-menu';
 
-        if (issueDataEntries.length === 0) {
-            previewContent.textContent = 'Нет сохраненных данных по задачам для предпросмотра. Откройте любую задачу в Jira, чтобы расширение сохранило данные.';
-            return;
+    placeholders.forEach(ph => {
+      const item = document.createElement('div');
+      item.className = 'placeholder-menu-item';
+      item.textContent = ph;
+      item.addEventListener('click', () => {
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const text = textarea.value;
+        textarea.value = text.substring(0, start) + ph + text.substring(end);
+        textarea.focus();
+        textarea.selectionEnd = start + ph.length;
+        menu.remove();
+      });
+      menu.appendChild(item);
+    });
+    
+    // Position near button
+    const btn = document.getElementById('insertPlaceholderBtn');
+    const rect = btn.getBoundingClientRect();
+    menu.style.left = `${rect.left}px`;
+    menu.style.top = `${rect.bottom + 4}px`;
+    
+    document.body.appendChild(menu);
+    
+    // Close on outside click
+    setTimeout(() => {
+      const closeHandler = (e) => {
+        if (!menu.contains(e.target) && e.target !== btn) {
+          menu.remove();
+          document.removeEventListener('click', closeHandler);
         }
+      };
+      document.addEventListener('click', closeHandler);
+    }, 100);
+  });
 
-        // 2. Находим самую последнюю запись по дате extractedAt
-        issueDataEntries.sort((a, b) => new Date(b.extractedAt) - new Date(a.extractedAt));
-        const latestIssueData = issueDataEntries[0];
-        
-        console.log(`Using data from the latest issue for preview: ${latestIssueData.issueKey} (extracted at ${latestIssueData.extractedAt})`);
+  // Load Example Button
+  document.getElementById('loadExampleBtn').addEventListener('click', () => {
+    const exampleTemplate = `Добрый день.
 
-        // 3. Собираем все поля для подстановки
-        const replacementData = {
-            ...latestIssueData.fields, // Все поля из объекта fields
-            issueKey: { value: latestIssueData.issueKey } // Добавляем issueKey
-        };
+Меня зовут {{ФИО}}, я системный администратор.
 
-        let filledTemplate = template;
+Я получил запрос на отправку тебе корпоративной персональной техники. В заказе указано: {{ОБОРУДОВАНИЕ}}{{ПЕРИФЕРИЯ}}
 
-        // 4. Заменяем все плейсхолдеры
-        for (const key in replacementData) {
-            const placeholder = new RegExp(`{{${key}}}`, 'g');
-            const value = replacementData[key]?.value || '';
-            filledTemplate = filledTemplate.replace(placeholder, value);
-        }
-        
-        // Заменяем старые плейсхолдеры для обратной совместимости
-        filledTemplate = filledTemplate
-            .replace(/{{TASK_ID}}/g, latestIssueData.issueKey || '')
-            .replace(/{{USER_NAME}}/g, latestIssueData.fields?.customfield_10989?.value || '')
-            .replace(/{{EQUIPMENT}}/g, latestIssueData.fields?.customfield_11122?.value || '')
-            .replace(/{{ADDRESS}}/g, latestIssueData.fields?.customfield_11120?.value || '');
+Отправка будет осуществляться транспортной компанией СДЭК. Подскажи, пожалуйста, верно ли указан адрес для доставки: {{АДРЕС}}?
 
+Номер телефона для курьера: {{ТЕЛЕФОН}}
+Твой телеграм: {{ТЕЛЕГРАМ}}`;
+    
+    document.getElementById('copypasteTemplate').value = exampleTemplate;
+    
+    // Show confirmation
+    const btn = document.getElementById('loadExampleBtn');
+    const originalText = btn.textContent;
+    btn.textContent = '✅ Загружено';
+    setTimeout(() => {
+      btn.textContent = originalText;
+    }, 1500);
+  });
 
-        previewContent.textContent = filledTemplate;
-
-    } catch (error) {
-        console.error("Error generating preview from local data:", error);
-        previewContent.textContent = `Произошла ошибка при генерации предпросмотра: ${error.message}`;
+  // Clear Template Button
+  document.getElementById('clearTemplateBtn').addEventListener('click', () => {
+    if (confirm('Вы уверены, что хотите очистить шаблон?')) {
+      document.getElementById('copypasteTemplate').value = '';
     }
   });
 
@@ -460,38 +494,147 @@ function setupEventListeners() {
   const availableFieldsContainer = document.getElementById('availableFields');
   const templateTextarea = document.getElementById('copypasteTemplate');
 
-  availableFieldsContainer.addEventListener('dragstart', (e) => {
-    if (e.target.classList.contains('field-pill')) {
-      e.dataTransfer.setData('text/plain', e.target.dataset.placeholder);
-      e.target.style.opacity = '0.5';
+  if (availableFieldsContainer) {
+    availableFieldsContainer.addEventListener('dragstart', (e) => {
+      if (e.target.classList.contains('field-pill')) {
+        e.dataTransfer.setData('text/plain', e.target.dataset.placeholder);
+        e.target.style.opacity = '0.5';
+      }
+    });
+
+    availableFieldsContainer.addEventListener('dragend', (e) => {
+      if (e.target.classList.contains('field-pill')) {
+        e.target.style.opacity = '1';
+      }
+    });
+  }
+
+  if (templateTextarea) {
+    templateTextarea.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      templateTextarea.classList.add('drag-over');
+    });
+
+    templateTextarea.addEventListener('dragleave', () => {
+      templateTextarea.classList.remove('drag-over');
+    });
+
+    templateTextarea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      templateTextarea.classList.remove('drag-over');
+      const placeholder = e.dataTransfer.getData('text/plain');
+      const start = templateTextarea.selectionStart;
+      const end = templateTextarea.selectionEnd;
+      const text = templateTextarea.value;
+      templateTextarea.value = text.substring(0, start) + placeholder + text.substring(end);
+      templateTextarea.focus();
+      templateTextarea.selectionEnd = start + placeholder.length;
+    });
+  }
+  
+  // --- Smart Field Priorities ---
+  
+  // Initialize drag and drop for field priorities
+    const categories = ['fullname', 'address', 'telegram', 'phone', 'equipment', 'peripherals', 'description'];
+  categories.forEach(category => {
+    const list = document.getElementById(`${category}Priority`);
+    if (!list) return;
+    
+    setupPriorityDragAndDrop(list);
+  });
+  
+  // Save field priorities button
+  document.getElementById('saveFieldPrioritiesBtn')?.addEventListener('click', async () => {
+    const config = {};
+    
+    categories.forEach(category => {
+      const list = document.getElementById(`${category}Priority`);
+      if (!list) return;
+      
+      const items = list.querySelectorAll('.field-priority-item');
+      config[category] = {
+        priority: Array.from(items).map(item => item.dataset.field)
+      };
+    });
+    
+    await chrome.storage.local.set({ smartFieldConfig: config });
+    
+    // Show confirmation
+    const btn = document.getElementById('saveFieldPrioritiesBtn');
+    const originalText = btn.textContent;
+    btn.textContent = 'Сохранено!';
+    btn.classList.add('btn-success');
+    setTimeout(() => {
+      btn.textContent = originalText;
+      btn.classList.remove('btn-success');
+    }, 2000);
+  });
+  
+  // Reset field priorities button
+  document.getElementById('resetFieldPrioritiesBtn')?.addEventListener('click', async () => {
+    if (confirm('Вы уверены, что хотите сбросить приоритеты полей к стандартным?')) {
+      await chrome.storage.local.remove('smartFieldConfig');
+      location.reload(); // Reload to reset UI
     }
-  });
-
-  availableFieldsContainer.addEventListener('dragend', (e) => {
-    if (e.target.classList.contains('field-pill')) {
-      e.target.style.opacity = '1';
-    }
-  });
-
-  templateTextarea.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    templateTextarea.classList.add('drag-over');
-  });
-
-  templateTextarea.addEventListener('dragleave', () => {
-    templateTextarea.classList.remove('drag-over');
-  });
-
-  templateTextarea.addEventListener('drop', (e) => {
-    e.preventDefault();
-    templateTextarea.classList.remove('drag-over');
-    const placeholder = e.dataTransfer.getData('text/plain');
-    const start = templateTextarea.selectionStart;
-    const end = templateTextarea.selectionEnd;
-    const text = templateTextarea.value;
-    templateTextarea.value = text.substring(0, start) + placeholder + text.substring(end);
-    templateTextarea.focus();
-    templateTextarea.selectionEnd = start + placeholder.length;
   });
 }
 
+// --- Helper Functions ---
+
+function setupPriorityDragAndDrop(listElement) {
+  let draggedElement = null;
+  
+  listElement.addEventListener('dragstart', (e) => {
+    if (e.target.classList.contains('field-priority-item')) {
+      draggedElement = e.target;
+      e.target.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    }
+  });
+  
+  listElement.addEventListener('dragend', (e) => {
+    if (e.target.classList.contains('field-priority-item')) {
+      e.target.classList.remove('dragging');
+    }
+  });
+  
+  listElement.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    
+    const afterElement = getDragAfterElement(listElement, e.clientY);
+    if (afterElement == null) {
+      listElement.appendChild(draggedElement);
+    } else {
+      listElement.insertBefore(draggedElement, afterElement);
+    }
+    
+    // Update priority numbers
+    updatePriorityNumbers(listElement);
+  });
+}
+
+function getDragAfterElement(container, y) {
+  const draggableElements = [...container.querySelectorAll('.field-priority-item:not(.dragging)')];
+  
+  return draggableElements.reduce((closest, child) => {
+    const box = child.getBoundingClientRect();
+    const offset = y - box.top - box.height / 2;
+    
+    if (offset < 0 && offset > closest.offset) {
+      return { offset: offset, element: child };
+    } else {
+      return closest;
+    }
+  }, { offset: Number.NEGATIVE_INFINITY }).element;
+}
+
+function updatePriorityNumbers(listElement) {
+  const items = listElement.querySelectorAll('.field-priority-item');
+  items.forEach((item, index) => {
+    const numberEl = item.querySelector('.priority-number');
+    if (numberEl) {
+      numberEl.textContent = index + 1;
+    }
+  });
+}

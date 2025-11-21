@@ -25,6 +25,10 @@ storage_backup.json
 firebase-config.js
 code.json
 
+# Jira exports (confidential)
+jira-issues-export-*.json
+unique-fields-summary.json
+
 # Copilot instructions
 .github/
 

@@ -145,6 +145,8 @@ class JiraNotesExtension {
     this.isUpdating = false; // Флаг для предотвращения множественных обновлений
     this._updateInProgress = false; // Защита от race conditions
     this.officeDetectionEnabled = true; // По умолчанию включено
+    this.debugEnabled = false; // включаем подробный лог если true
+    this.issueProcessingQueue = Promise.resolve(); // очередь последовательной обработки открытия задач
     
     // Performance utilities
     this.memoizer = new Memoizer(500);
@@ -166,12 +168,134 @@ class JiraNotesExtension {
     this.lastUpdateTime = 0; // Время последнего обновления
     this.statusesMetadata = {}; // Кеш метаданных статусов { statusId: { name, color, emoji } }
     this.contextInvalidatedShown = false; // Флаг для показа уведомления о перезагрузке
+    this.extractionLocks = {}; // { issueKey: Promise } - блокировка параллельного извлечения одной задачи
+    this.extractionAttempts = {}; // { issueKey: number } - количество попыток извлечения
+    this.pendingIssues = {}; // { issueKey: true } - пометка что извлечение ещё не завершено успешно
+    this.maxExtractionAttempts = 8; // максимум повторных попыток при 0 найденных полях
+    
+    // НОВОЕ: Умная конфигурация категорий полей с приоритетами
+    this.smartFieldConfig = {
+      fullname: {
+        label: '👤 ФИО',
+        placeholder: 'ФИО',
+        priority: [
+          'customfield_10212',  // Прямое поле ФИО
+          'composite:10587+10588+10589',  // Фамилия + Имя + Отчество
+          'regex:summary'  // Парсинг из названия
+        ],
+        validator: (value) => value && value.length > 2,
+        formatter: (value) => value.trim()
+      },
+      address: {
+        label: '📍 Адрес',
+        placeholder: 'АДРЕС',
+        priority: [
+          'customfield_11120',  // Офис или Адрес
+          'customfield_10994',  // Адрес офиса
+          'composite:11138+10560'  // ГЕО + Город
+        ],
+        validator: (value) => value && value.length > 2,
+        formatter: (value) => value.trim()
+      },
+      telegram: {
+        label: '📱 Телеграм',
+        placeholder: 'TELEGRAM',
+        priority: [
+          'customfield_11062',  // Телеграм сотрудника
+          'customfield_11087'   // Ваш телеграм
+        ],
+        validator: (value) => {
+          if (!value) return false;
+          const normalized = value.trim();
+          return normalized.includes('@') || /^[a-zA-Z0-9_]{5,}$/.test(normalized);
+        },
+        formatter: (value) => value.trim(),
+        warning: (value) => {
+          if (value && !value.includes('@') && !/^[a-zA-Z0-9_]{5,}$/.test(value)) {
+            return 'Не похоже на telegram handle';
+          }
+          return null;
+        }
+      },
+      phone: {
+        label: '☎️ Телефон',
+        placeholder: 'ТЕЛЕФОН',
+        priority: [
+          'customfield_11121',  // Номер телефона для курьера
+          'customfield_11087'   // Ваш телеграм (может содержать телефон)
+        ],
+        validator: (value) => {
+          if (!value) return false;
+          const normalized = value.replace(/[\s()-]/g, '');
+          const patterns = [
+            /^\+7\d{10}$/,     // +79123456789
+            /^8\d{10}$/,       // 89123456789
+            /^\+375\d{9}$/,    // +375291234567
+            /^\+\d{10,15}$/    // Международный
+          ];
+          return patterns.some(p => p.test(normalized));
+        },
+        formatter: (value) => value.trim(),
+        warning: (value) => {
+          if (value && !value.match(/^[+\d\s()-]+$/)) {
+            return 'Не похоже на номер телефона';
+          }
+          const invalidValues = ['Нет', '–', 'ОМ заберет', 'Добавьте варианты'];
+          if (invalidValues.some(inv => value.includes(inv))) {
+            return 'Placeholder-значение, не настоящий телефон';
+          }
+          return null;
+        }
+      },
+      equipment: {
+        label: '💻 Оборудование',
+        placeholder: 'ОБОРУДОВАНИЕ',
+        priority: [
+          'customfield_11122',  // Выберите тип оборудования
+          'summary'  // Может быть в названии заявки
+        ],
+        validator: (value) => value && value.length > 2,
+        formatter: (value) => value.trim(),
+        warning: (value) => {
+          const invalidValues = ['Добавьте вариант', 'Другое оборудование / Other equipment'];
+          if (invalidValues.some(inv => value.includes(inv))) {
+            return '⚠️ Нет конкретного оборудования';
+          }
+          return null;
+        }
+      },
+      peripherals: {
+        label: '🖱️ Периферия',
+        placeholder: 'ПЕРИФЕРИЯ',
+        priority: [
+          'customfield_11123'  // Периферия
+        ],
+        validator: (value) => value && value.length > 2,
+        formatter: (value) => value.trim(),
+        warning: (value) => {
+          const invalidValues = ['Добавьте вариант', 'Другая периферия / Other peripherals'];
+          if (invalidValues.some(inv => value.includes(inv))) {
+            return '⚠️ Не указана конкретная периферия';
+          }
+          return null;
+        }
+      },
+      description: {
+        label: '📝 Содержание заявки',
+        placeholder: 'СОДЕРЖАНИЕ',
+        priority: [
+          'summary'  // Название заявки
+        ],
+        validator: (value) => value && value.length > 3,
+        formatter: (value) => value.trim()
+      }
+    };
     
     // Таблица соответствий адресов и кодов (загружается из code.json)
     this.addressMapping = {
       codes: [],
       addresses: [],
-      normalizedAddresses: [] // НОВОЕ: кеш нормализованных адресов
+      mappingList: [] // Список объектов { code, rawCode, patterns }
     };
     
     // Загружаем маппинг и настройки при инициализации
@@ -182,13 +306,49 @@ class JiraNotesExtension {
   // Загрузка настроек расширения
   async loadSettings() {
     try {
-      const result = await chrome.storage.local.get('officeDetectionEnabled');
+      const result = await chrome.storage.local.get(['officeDetectionEnabled', 'smartFieldConfig', 'debugEnabled']);
       this.officeDetectionEnabled = result.officeDetectionEnabled !== false; // по умолчанию true
+      this.debugEnabled = result.debugEnabled === true; // выключено по умолчанию
+      
+      // Загружаем пользовательскую конфигурацию приоритетов полей
+      if (result.smartFieldConfig) {
+        // Мержим с дефолтной конфигурацией (пользовательская перезаписывает дефолтную)
+        Object.keys(result.smartFieldConfig).forEach(category => {
+          if (this.smartFieldConfig[category]) {
+            this.smartFieldConfig[category].priority = result.smartFieldConfig[category].priority || this.smartFieldConfig[category].priority;
+          }
+        });
+        console.log('⚙️ Custom field priorities loaded');
+      }
+      
       console.log('⚙️ Office detection:', this.officeDetectionEnabled ? 'enabled' : 'disabled');
+      if (this.debugEnabled) {
+        console.log('🐞 Debug logging enabled');
+      }
     } catch (error) {
       console.error('❌ Failed to load settings:', error);
       this.officeDetectionEnabled = true; // fallback на включенное состояние
     }
+  }
+
+  // Унифицированный логгер
+  log(...args) {
+    if (this.debugEnabled) {
+      console.log('[JPN]', ...args);
+    }
+  }
+
+  // Добавление задачи в очередь (гарантия последовательности)
+  enqueueIssueProcessing(fn) {
+    const wrapped = async () => {
+      try {
+        return await fn();
+      } catch (e) {
+        console.error('❌ Issue processing error:', e);
+      }
+    };
+    this.issueProcessingQueue = this.issueProcessingQueue.then(() => wrapped());
+    return this.issueProcessingQueue;
   }
   
   // Загрузка таблицы соответствий из code.json
@@ -196,24 +356,87 @@ class JiraNotesExtension {
     try {
       const response = await fetch(chrome.runtime.getURL('code.json'));
       const data = await response.json();
-      
-      this.addressMapping = {
-        codes: data.code || [],
-        addresses: data.addresses || [],
-        normalizedAddresses: [] // Предвычислим нормализованные адреса
-      };
-      
-      // ОПТИМИЗАЦИЯ: Предвычисляем нормализованные адреса ОДИН РАЗ
-      this.addressMapping.normalizedAddresses = this.addressMapping.addresses.map(
-        addr => this.normalizeAddress(addr)
-      );
-      
-      console.log('📋 Address mapping loaded:', this.addressMapping.codes.length, 'codes (normalized cache ready)');
+      // Используем вынесенный модуль парсинга JiraParser
+      this.addressMapping = (window.JiraParser && typeof window.JiraParser.buildAddressMapping === 'function')
+        ? window.JiraParser.buildAddressMapping(data)
+        : { codes: [], addresses: [], entries: [], mappingList: [] };
+      console.log('📋 Address mapping loaded via parser module:', this.addressMapping.entries?.length || 0, 'codes');
     } catch (error) {
       console.error('❌ Failed to load address mapping:', error);
-      // Fallback на пустые массивы
-      this.addressMapping = { codes: [], addresses: [], normalizedAddresses: [] };
+      // Fallback на пустую структуру
+      this.addressMapping = { codes: [], addresses: [], entries: [], mappingList: [] };
     }
+  }
+
+  // Новый надёжный поиск кода офиса по адресу (поддержка нескольких исходных строк)
+  getOfficeCode(rawAddress) {
+    try {
+      if (window.JiraParser && typeof window.JiraParser.getOfficeCode === 'function') {
+        return window.JiraParser.getOfficeCode(this.addressMapping, rawAddress);
+      }
+      if (!rawAddress || !this.addressMapping?.mappingList?.length) return 'ХЗ';
+
+      // Если передан массив адресов - объединяем. (На случай будущего расширения)
+      const joinedRaw = Array.isArray(rawAddress) ? rawAddress.filter(Boolean).join(' | ') : rawAddress;
+      const address = this.normalizeAddress(joinedRaw);
+      
+      console.log(`  🔍 Searching office code in: "${joinedRaw}" -> normalized: "${address}"`);
+
+      // ЭТАП 1: Прямой поиск точного упоминания кода (как раньше) в исходной строке(ах)
+      for (const code of this.addressMapping.codes) {
+        if (joinedRaw.toLowerCase().includes(code.toLowerCase())) {
+          console.log(`  🏢 Exact code match: ${code}`);
+          return code;
+        }
+      }
+
+      let best = null;
+      for (const entry of this.addressMapping.mappingList) {
+        for (const pattern of entry.patterns) {
+          // Пропускаем слишком короткие паттерны (во избежание ложных совпадений типа "ой", "ов")
+          if (!pattern || pattern.length < 4) continue;
+          
+          // Проверяем точное вхождение паттерна как подстроки
+          // Добавляем проверку границ слова (не внутри другого слова)
+          const idx = address.indexOf(pattern);
+          if (idx !== -1) {
+            // Проверяем, что это начало строки или после разделителя
+            const beforeOk = idx === 0 || /[^а-яё]/i.test(address[idx - 1]);
+            // Проверяем, что это конец строки или перед разделителем
+            const afterOk = idx + pattern.length === address.length || /[^а-яё]/i.test(address[idx + pattern.length]);
+            
+            if (beforeOk && afterOk) {
+              // Оцениваем по длине совпавшего паттерна (чем длиннее, тем надёжнее)
+              const score = pattern.length;
+              if (!best || score > best.score) {
+                best = { code: entry.code, score, pattern };
+              }
+            }
+          }
+        }
+      }
+      if (best) {
+        console.log(`  🏢 Office code matched (pattern scoring): ${best.code} | pattern: '${best.pattern}' | score: ${best.score}`);
+        return best.code;
+      }
+
+      // ЭТАП 3 (ОБНОВЛЁН): Нормализованный адресный поиск по pair-структуре (фикс смещения индексов)
+      if (this.addressMapping.entries?.length) {
+        for (const entry of this.addressMapping.entries) {
+          const normalizedAddr = entry.normalizedAddress;
+          if (!normalizedAddr || normalizedAddr.length < 6) continue;
+          if (address.includes(normalizedAddr)) {
+            console.log(`  🏢 Normalized address match: '${entry.addressRaw}' -> ${entry.code}`);
+            return entry.code;
+          }
+        }
+      }
+
+      console.log('  ❌ No office code match found, returning fallback "ХЗ"');
+    } catch (e) {
+      console.warn('⚠️ Office code detection error:', e);
+    }
+    return 'ХЗ';
   }
 
   // ОПТИМИЗАЦИЯ: Быстрое сравнение объектов (без JSON.stringify)
@@ -228,6 +451,14 @@ class JiraNotesExtension {
     }
     
     return true;
+  }
+  
+  // НОВОЕ: Экранирование HTML для безопасного вывода
+  escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
   }
 
   // Получение метаданных статуса (с кешированием)
@@ -261,6 +492,7 @@ class JiraNotesExtension {
     if (this.initialized) return;
     
     console.log('Jira Personal Notes: Initializing...');
+    console.log('💡 Для включения детальных логов выполните: chrome.storage.local.set({debugEnabled: true})');
     this.initialized = true;
     
     // Ждем загрузки страницы
@@ -319,13 +551,59 @@ class JiraNotesExtension {
   // Слушатель изменений настроек
   setupSettingsListener() {
     chrome.storage.onChanged.addListener((changes, area) => {
-      if (area === 'local' && changes.officeDetectionEnabled) {
-        const newValue = changes.officeDetectionEnabled.newValue;
-        console.log('⚙️ Office detection setting changed:', newValue);
-        this.officeDetectionEnabled = newValue;
+      if (area === 'local') {
+        // Изменение настройки определения офиса
+        if (changes.officeDetectionEnabled) {
+          const newValue = changes.officeDetectionEnabled.newValue;
+          console.log('⚙️ Office detection setting changed:', newValue);
+          this.officeDetectionEnabled = newValue;
+          
+          // Перерисовываем все карточки
+          this.updateAllCards();
+        }
         
-        // Перерисовываем карточки
-        this.updateAllCards();
+        // Изменение данных конкретных задач (code, address, devicetype)
+        const changedIssues = new Set();
+        
+        for (const key in changes) {
+          if (key.startsWith('code_') || key.startsWith('address_') || key.startsWith('devicetype_')) {
+            const issueKey = key.replace(/^(code_|address_|devicetype_)/, '');
+            
+            // Обновляем кеш
+            if (key.startsWith('code_')) {
+              if (changes[key].newValue) {
+                this.codeCache[issueKey] = changes[key].newValue;
+              } else {
+                delete this.codeCache[issueKey];
+              }
+            } else if (key.startsWith('address_')) {
+              if (changes[key].newValue) {
+                this.addressCache[issueKey] = changes[key].newValue;
+              } else {
+                delete this.addressCache[issueKey];
+              }
+            } else if (key.startsWith('devicetype_')) {
+              if (changes[key].newValue) {
+                this.deviceTypeCache[issueKey] = changes[key].newValue;
+              } else {
+                delete this.deviceTypeCache[issueKey];
+              }
+            }
+            
+            // Добавляем в список измененных (обновим все разом)
+            changedIssues.add(issueKey);
+          }
+        }
+        
+        // Обновляем все измененные карточки одним пакетом
+        if (changedIssues.size > 0) {
+          console.log(`📝 Storage changed: updating ${changedIssues.size} card(s)`);
+          this.log(`[STORAGE_CHANGED] Changed issues: ${Array.from(changedIssues).join(', ')}`);
+          changedIssues.forEach(issueKey => {
+            this.log(`[STORAGE_CHANGED] Triggering updateSingleCard for ${issueKey}`);
+            this.updateSingleCard(issueKey);
+          });
+        }
       }
     });
   }
@@ -581,20 +859,46 @@ class JiraNotesExtension {
   }
 
   // Ожидаем загрузку модального окна Jira
-  waitForJiraModal() {
+  waitForJiraModal(expectedIssueKey = null) {
     return new Promise((resolve) => {
+      let attempts = 0;
+      const maxAttempts = 50; // 10 секунд максимум
+      
       const checkModal = () => {
+        attempts++;
+        
+        // Проверяем что задача не изменилась
+        if (expectedIssueKey && this.currentIssueKey !== expectedIssueKey) {
+          console.warn(`⚠️ Issue changed during modal wait! Expected ${expectedIssueKey}, now on ${this.currentIssueKey}`);
+          resolve(false); // Возвращаем false чтобы прервать обработку
+          return;
+        }
+        
         // Ищем признаки того, что боковая панель загрузилась
         const modal = document.querySelector('[role="dialog"]') || 
                      document.querySelector('[data-testid*="issue"]') ||
                      document.querySelector('.issue-view');
         
-        if (modal) {
-          console.log('✅ Jira modal detected, waiting 500ms more...');
-          setTimeout(resolve, 500); // Даем еще полсекунды на стабилизацию
+        // Проверяем наличие НЕСКОЛЬКИХ customfield элементов с реальным контентом
+        const fieldElements = document.querySelectorAll('[data-testid*="customfield_"]');
+        const fieldsWithContent = Array.from(fieldElements).filter(el => {
+          const text = el.textContent.trim();
+          return text && text.length > 0 && !text.includes('Добавьте вариант');
+        });
+        
+        if (modal && fieldsWithContent.length >= 3) {
+          console.log(`✅ Jira modal ready: ${fieldsWithContent.length} fields detected, waiting 500ms...`);
+          setTimeout(() => resolve(true), 500);
+        } else if (attempts >= maxAttempts) {
+          console.warn('⚠️ Modal load timeout, proceeding anyway...');
+          resolve(true);
         } else {
-          console.log('⏳ Waiting for Jira modal...');
-          setTimeout(checkModal, 200); // Проверяем каждые 200мс
+          if (modal) {
+            console.log(`⏳ Modal found, but only ${fieldsWithContent.length} fields loaded (attempt ${attempts})...`);
+          } else {
+            console.log(`⏳ Waiting for Jira modal (attempt ${attempts})...`);
+          }
+          setTimeout(checkModal, 200);
         }
       };
       checkModal();
@@ -603,43 +907,49 @@ class JiraNotesExtension {
 
   // Вставляем панель с заметками
   async injectNotesPanel() {
-    if (!this.currentIssueKey) {
-      console.log('❌ No issue key detected, retrying...');
-      setTimeout(() => this.injectNotesPanel(), 1000);
-      return;
-    }
+    return this.enqueueIssueProcessing(async () => {
+      if (!this.currentIssueKey) {
+        this.log('❌ No issue key detected, retrying...');
+        setTimeout(() => this.injectNotesPanel(), 1000);
+        return;
+      }
 
-    // Проверяем, не существует ли уже панель
-    const existingPanel = document.querySelector('[data-jira-notes-panel="true"]');
-    if (existingPanel) {
-      console.log('♻️ Removing old panel before creating new one...');
-      existingPanel.remove();
-    }
-
-    // Ждем загрузки бокового окна Jira
-    console.log('⏳ Waiting for Jira modal to fully load...');
-    await this.waitForJiraModal();
-    
-    console.log('🎨 Creating panel for', this.currentIssueKey);
-    
-    // Создаем панель (теперь async)
-    const panel = await this.createNotesPanel();
-    
-    // Вставляем в body
-    document.body.appendChild(panel);
-    
-    // Проверяем что панель видима
-    const rect = panel.getBoundingClientRect();
-    console.log(' Panel position:', {
-      top: rect.top,
-      left: rect.left,
-      display: window.getComputedStyle(panel).display,
-      visibility: window.getComputedStyle(panel).visibility,
-      zIndex: window.getComputedStyle(panel).zIndex
+      const targetIssueKey = this.currentIssueKey;
+      const existingPanel = document.querySelector('[data-jira-notes-panel="true"]');
+      if (existingPanel) {
+        this.log('♻️ Removing old panel before creating new one...');
+        existingPanel.remove();
+      }
+      this.log('⏳ Waiting for Jira modal to fully load...');
+      const modalReady = await this.waitForJiraModal(targetIssueKey);
+      if (!modalReady || this.currentIssueKey !== targetIssueKey) {
+        console.warn(`⚠️ Issue changed during panel injection. Expected ${targetIssueKey}, now on ${this.currentIssueKey}. Aborting.`);
+        return;
+      }
+      this.log('🎨 Creating panel for', targetIssueKey);
+      this.log('📊 Pre-extracting issue data for copypaste...');
+      const extractedData = await this.extractAndSaveAllIssueData(targetIssueKey);
+      if (this.currentIssueKey !== targetIssueKey) {
+        console.warn(`⚠️ Issue changed during data extraction. Expected ${targetIssueKey}, now on ${this.currentIssueKey}. Aborting panel creation.`);
+        return;
+      }
+      if (!extractedData || !extractedData.fields || Object.keys(extractedData.fields).length < 3) {
+        console.error('❌ Failed to extract sufficient data on first try, retrying in 1s...');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        if (this.currentIssueKey !== targetIssueKey) {
+          console.warn(`⚠️ Issue changed during retry wait. Aborting.`);
+          return;
+        }
+        await this.extractAndSaveAllIssueData(targetIssueKey);
+      } else {
+        this.log('✅ Issue data ready:', Object.keys(extractedData.fields).length, 'fields');
+      }
+      const panel = await this.createNotesPanel();
+      document.body.appendChild(panel);
+      const rect = panel.getBoundingClientRect();
+      this.log(' Panel position:', { top: rect.top, left: rect.left, display: window.getComputedStyle(panel).display, visibility: window.getComputedStyle(panel).visibility, zIndex: window.getComputedStyle(panel).zIndex });
+      await this.loadNotes();
     });
-
-    // Загружаем сохраненные заметки
-    await this.loadNotes();
   }
 
   // Находим контейнер для вставки панели
@@ -1046,14 +1356,8 @@ class JiraNotesExtension {
         this.displayCurrentStatus(status);
       }
       
-      // Автоматически извлекаем и сохраняем адрес и код офиса при открытии задачи (только если включено)
-      if (this.officeDetectionEnabled) {
-        await this.extractAndSaveAddress();
-        await this.extractAndSaveOfficeCode();
-      }
-      
-      // НОВОЕ: Извлекаем и сохраняем ВСЕ данные из карточки
-      await this.extractAndSaveAllIssueData();
+      // УДАЛЕНО: Больше не извлекаем данные здесь - они уже извлечены в injectNotesPanel()
+      // Автоматическое извлечение адреса и офиса происходит внутри extractAndSaveAllIssueData()
       
       // ФОРСИРУЕМ немедленное обновление ВСЕХ карточек на доске (без debounce)
       // Это нужно чтобы новые данные (офис, адрес) сразу отобразились на всех карточках
@@ -1149,120 +1453,28 @@ class JiraNotesExtension {
     return this._normalizeAddressMemoized(text);
   }
 
-  // Извлекаем кодировку офиса из двух полей Jira - ОПТИМИЗИРОВАННАЯ ВЕРСИЯ v3
-  async extractAndSaveOfficeCode() {
-    // Ранний выход если код уже в кеше
-    if (this.currentIssueKey && this.codeCache[this.currentIssueKey]) {
-      console.log(`✓ Office code in cache: ${this.currentIssueKey} -> ${this.codeCache[this.currentIssueKey]}`);
-      // Обновляем карточку даже если код в кеше (для мгновенного отображения)
-      this.updateSingleCard(this.currentIssueKey);
-      return;
-    }
-    
-    console.log('🏢 Starting office code extraction...');
-    
-    const maxAttempts = 2; // Уменьшили с 3 до 2
-    const attemptDelay = 100; // Уменьшили с 200 до 100мс
-    
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      // Поле 1: "Офис или Адрес" (customfield_11120)
-      const officeField1 = document.querySelector('[data-testid="issue.views.field.single-line-text.read-view.customfield_11120"]');
-      // Поле 2: "Адрес офиса" (customfield_10994)
-      const officeField2 = document.querySelector('[data-testid="issue.views.field.single-line-text.read-view.customfield_10994"]');
-      
-      if (officeField1 || officeField2) {
-        const text1 = officeField1 ? officeField1.textContent.trim() : '';
-        const text2 = officeField2 ? officeField2.textContent.trim() : '';
-        
-        console.log(`🔎 Attempt ${attempt}: Field1="${text1.substring(0, 50)}...", Field2="${text2.substring(0, 50)}..."`);
-        
-        // ШАГ 1: Сначала ищем точное совпадение с кодом в обоих полях (БЫСТРО)
-        let foundCode = null;
-        
-        if (text1) {
-          for (const code of this.addressMapping.codes) {
-            if (text1.includes(code)) {
-              foundCode = code;
-              console.log(`✅ Found exact code match in Field1: "${code}"`);
-              break;
-            }
-          }
-        }
-        
-        if (!foundCode && text2) {
-          for (const code of this.addressMapping.codes) {
-            if (text2.includes(code)) {
-              foundCode = code;
-              console.log(`✅ Found exact code match in Field2: "${code}"`);
-              break;
-            }
-          }
-        }
-        
-        // ШАГ 2: Если код не найден - ищем по адресу с нормализацией (МЕДЛЕННЕЕ)
-        if (!foundCode) {
-          console.log('🔍 No direct code match, searching by address...');
-          
-          // Нормализуем тексты один раз
-          const normalized1 = this.normalizeAddress(text1);
-          const normalized2 = this.normalizeAddress(text2);
-          
-          console.log(`🔤 Normalized: Field1="${normalized1}", Field2="${normalized2}"`);
-          
-          // ОПТИМИЗАЦИЯ: Используем предвычисленный кеш вместо нормализации на каждую итерацию
-          for (let i = 0; i < this.addressMapping.addresses.length; i++) {
-            const normalizedAddress = this.addressMapping.normalizedAddresses[i];
-            
-            // Проверяем вхождение (частичное совпадение)
-            if ((normalized1 && normalized1.includes(normalizedAddress)) || 
-                (normalized2 && normalized2.includes(normalizedAddress))) {
-              foundCode = this.addressMapping.codes[i];
-              console.log(`✅ Found normalized address match: "${this.addressMapping.addresses[i]}" -> "${foundCode}"`);
-              break;
-            }
-          }
-        }
-        
-        // ШАГ 3: Если ничего не нашли - ставим "ХЗ"
-        if (!foundCode) {
-          foundCode = 'ХЗ';
-          console.log('❌ No matches found, using "ХЗ"');
-        }
-        
-        // Сохраняем результат
-        if (this.currentIssueKey) {
-          const cachedCode = this.codeCache[this.currentIssueKey];
-          if (cachedCode !== foundCode) {
-            this.codeCache[this.currentIssueKey] = foundCode;
-            await chrome.storage.local.set({
-              [`code_${this.currentIssueKey}`]: foundCode
-            });
-            console.log(`💾 Office code saved: ${this.currentIssueKey} -> ${foundCode}`);
-            
-            // МГНОВЕННО обновляем конкретную карточку
-            this.updateSingleCard(this.currentIssueKey);
-          } else {
-            console.log(`✓ Office code unchanged, skip update`);
-          }
-        }
-        
-        return;
-      }
-      
-      // Ждем перед следующей попыткой
-      if (attempt < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, attemptDelay));
-      }
-    }
-    
-    console.log('❌ Office fields not found');
-  }
-
   // Извлечение ВСЕХ полей из карточки Jira и сохранение в localStorage
-  async extractAndSaveAllIssueData() {
-    if (!this.currentIssueKey) {
+  async extractAndSaveAllIssueData(explicitIssueKey = null) {
+    // КРИТИЧНО: Используем явно переданный ключ или текущий
+    const targetIssueKey = explicitIssueKey || this.currentIssueKey;
+    
+    if (!targetIssueKey) {
       console.log('⚠️ No issue key - skipping full data extraction');
       return;
+    }
+
+    console.log(`🎯 Target issue: ${targetIssueKey}`);
+
+    // Инициализация счётчика
+    if (this.extractionAttempts[targetIssueKey] == null) {
+      this.extractionAttempts[targetIssueKey] = 0;
+    }
+    this.pendingIssues[targetIssueKey] = true;
+
+    // ЗАЩИТА: Если уже идёт извлечение этой задачи - ждём его завершения
+    if (this.extractionLocks[targetIssueKey]) {
+      console.log(`⏳ Waiting for ongoing extraction of ${targetIssueKey}`);
+      return await this.extractionLocks[targetIssueKey];
     }
 
     // Проверяем валидность контекста
@@ -1274,10 +1486,69 @@ class JiraNotesExtension {
       return; // Тихо выходим
     }
 
-    console.log(`📊 Extracting full issue data for ${this.currentIssueKey}...`);
+    console.log(`📊 Extracting full issue data for ${targetIssueKey} (attempt ${this.extractionAttempts[targetIssueKey] + 1}/${this.maxExtractionAttempts})...`);
 
+    const runner = async () => {
+      const data = await this._doExtractionReal(targetIssueKey);
+      if (data && data._notReady) {
+        const waited = this.modalWaitTimes?.[targetIssueKey] || 0;
+        // Инициализация свойств ожидания при первом использовании
+        if (!this.modalReadinessMaxWait) this.modalReadinessMaxWait = 6000;
+        if (!this.modalWaitTimes) this.modalWaitTimes = {};
+        if (waited < this.modalReadinessMaxWait && this.currentIssueKey === targetIssueKey) {
+          const delay = Math.min(300 + waited, 1200);
+          this.modalWaitTimes[targetIssueKey] = waited + delay;
+          console.warn(`[WAIT_MODAL] ${targetIssueKey} not ready (elements=${data.elementCount || 0}), recheck in ${delay}ms (accumulated ${this.modalWaitTimes[targetIssueKey]}ms)`);
+          setTimeout(() => {
+            if (this.currentIssueKey === targetIssueKey) {
+              this.extractAndSaveAllIssueData(targetIssueKey);
+            }
+          }, delay);
+          return null;
+        } else {
+          console.warn(`[WAIT_MODAL_TIMEOUT] ${targetIssueKey} exceeded readiness wait (${waited}ms). Proceeding with attempts.`);
+        }
+      }
+      if (!data) {
+        // Не удалось извлечь (0 полей или ошибка)
+        this.extractionAttempts[targetIssueKey]++;
+        const attempt = this.extractionAttempts[targetIssueKey];
+        if (attempt < this.maxExtractionAttempts && this.currentIssueKey === targetIssueKey) {
+          const delay = Math.min(200 * Math.pow(1.8, attempt), 3000);
+          console.warn(`[EXTRACT_ATTEMPT] ${targetIssueKey} empty result. Retry ${attempt}/${this.maxExtractionAttempts} in ${delay}ms`);
+          // Планируем повторную попытку
+          setTimeout(() => {
+            // Проверяем что задача всё ещё актуальна
+            if (this.currentIssueKey === targetIssueKey) {
+              this.extractAndSaveAllIssueData(targetIssueKey);
+            } else {
+              console.log(`[EXTRACT_ABORT] Issue changed before retry for ${targetIssueKey}`);
+              delete this.pendingIssues[targetIssueKey];
+            }
+          }, delay);
+        } else {
+          console.error(`[EXTRACT_DONE] Giving up on ${targetIssueKey} after ${attempt} attempts`);
+          delete this.pendingIssues[targetIssueKey];
+        }
+        return null;
+      } else {
+        console.log(`[EXTRACT_DONE] ${targetIssueKey} success with ${Object.keys(data.fields).length} fields after attempt ${this.extractionAttempts[targetIssueKey] + 1}`);
+        delete this.pendingIssues[targetIssueKey];
+        return data;
+      }
+    };
+
+    const extractionPromise = runner();
+    this.extractionLocks[targetIssueKey] = extractionPromise;
+    const result = await extractionPromise;
+    delete this.extractionLocks[targetIssueKey];
+    return result;
+  }
+
+  // Реальная функция извлечения (без повторных попыток)
+  async _doExtractionReal(targetIssueKey) {
     const issueData = {
-      issueKey: this.currentIssueKey,
+      issueKey: targetIssueKey,
       extractedAt: new Date().toISOString(),
       fields: {}
     };
@@ -1288,7 +1559,7 @@ class JiraNotesExtension {
       // 1. Код элемента (Issue Key)
       issueData.fields.issueKey = {
         label: 'Код элемента',
-        value: this.currentIssueKey
+        value: targetIssueKey
       };
       
       // 2. Название заявки (Summary)
@@ -1306,176 +1577,112 @@ class JiraNotesExtension {
       
       // === ДИНАМИЧЕСКОЕ ИЗВЛЕЧЕНИЕ ВСЕХ КАСТОМНЫХ ПОЛЕЙ ===
       
-      // Находим все элементы с data-testid содержащими customfield_
+      // ОПТИМИЗАЦИЯ: Находим все элементы заранее, а не в forEach
       const allElements = document.querySelectorAll('[data-testid*="customfield_"]');
-      const customFields = new Map(); // Используем Map для избежания дубликатов
+      // ПРОВЕРКА ГОТОВНОСТИ МОДАЛА: если нет summary или слишком мало элементов, считаем что модал ещё грузится
+      if (!summaryElement || allElements.length < 3) {
+        return { _notReady: true, elementCount: allElements.length };
+      }
+      const customFields = new Map();
       
       console.log(`🔍 Found ${allElements.length} elements with customfield in testid`);
       
+      // Предварительно собираем все нужные селекторы для batch-запроса
+      const fieldIds = new Set();
       allElements.forEach(element => {
         const testId = element.getAttribute('data-testid');
-        
-        // Извлекаем номер customfield из testid
         const match = testId.match(/customfield_(\d+)/);
-        if (!match) return;
-        
-        const fieldId = `customfield_${match[1]}`;
-        
-        // Пропускаем, если уже обработали это поле
+        if (match) {
+          fieldIds.add(`customfield_${match[1]}`);
+        }
+      });
+      
+      console.log(`📋 Processing ${fieldIds.size} unique fields...`);
+      
+      // Обрабатываем каждое уникальное поле
+      fieldIds.forEach(fieldId => {
+        // Пропускаем если уже обработали
         if (customFields.has(fieldId)) return;
         
-        // Получаем название поля из заголовка
+        // === ИЗВЛЕЧЕНИЕ НАЗВАНИЯ ПОЛЯ ===
         let fieldName = '';
         
-        // Сначала ищем в "Основных сведениях" (с .common.)
-        let headingElement = document.querySelector(`[data-testid="issue.views.issue-base.common.${fieldId}.label"]`);
-        if (headingElement) {
-          const h2 = headingElement.querySelector('h2');
-          if (h2) {
-            fieldName = h2.textContent.trim();
-          }
+        // Вариант 1: "Основные сведения"
+        const commonLabel = document.querySelector(`[data-testid="issue.views.issue-base.common.${fieldId}.label"] h2`);
+        if (commonLabel) {
+          fieldName = commonLabel.textContent.trim();
         }
         
-        // Если не нашли, ищем обычный заголовок
+        // Вариант 2: Обычный заголовок
         if (!fieldName) {
-          headingElement = document.querySelector(`[data-testid="issue-field-heading-styled-field-heading.${fieldId}"]`);
-          if (headingElement) {
-            const h3 = headingElement.querySelector('h3');
-            if (h3) {
-              fieldName = h3.textContent.trim();
-            }
-          }
+          const heading = document.querySelector(`[data-testid="issue-field-heading-styled-field-heading.${fieldId}"] h3`);
+          if (heading) fieldName = heading.textContent.trim();
         }
         
-        // Если все еще нет названия, ищем в другом варианте заголовка
+        // Вариант 3: Multiline заголовок
         if (!fieldName) {
-          const h2Element = document.querySelector(`h2[data-component-selector="jira-issue-field-heading-multiline-field-heading-title"]`);
-          if (h2Element && h2Element.closest(`[data-testid*="${fieldId}"]`)) {
-            fieldName = h2Element.textContent.trim();
+          const multilineHeading = document.querySelector(`h2[data-component-selector="jira-issue-field-heading-multiline-field-heading-title"]`);
+          if (multilineHeading && multilineHeading.closest(`[data-testid*="${fieldId}"]`)) {
+            fieldName = multilineHeading.textContent.trim();
           }
         }
         
-        // Извлекаем значение поля
+        // === ИЗВЛЕЧЕНИЕ ЗНАЧЕНИЯ ПОЛЯ ===
         let fieldValue = '';
         
-        // 1. Для полей из "Основных сведений" - rich text поля
-        const richTextField = document.querySelector(`[data-testid="issue.views.field.rich-text.${fieldId}"]`);
-        if (richTextField) {
-          const readViewContainer = richTextField.querySelector('[data-component-selector="jira-issue-view-rich-text-inline-edit-view-container"]');
-          if (readViewContainer) {
-            fieldValue = readViewContainer.textContent.trim();
-          }
-        }
+        // Пробуем все возможные варианты в порядке частоты использования
+        const valueSelectors = [
+          // 1. Single-line text (самый частый)
+          { selector: `[data-testid="issue.views.field.single-line-text.read-view.${fieldId}"]`, extractor: (el) => el.querySelector('a')?.textContent || el.textContent },
+          // 2. Rich text
+          { selector: `[data-testid="issue.views.field.rich-text.${fieldId}"] [data-component-selector="jira-issue-view-rich-text-inline-edit-view-container"]`, extractor: (el) => el.textContent },
+          // 3. Date
+          { selector: `[data-testid="issue.views.field.date-inline-edit.${fieldId}"] [data-testid="issue-field-inline-edit-read-view-container.ui.container"]`, extractor: (el) => {
+            const btn = el.querySelector('button');
+            return btn ? el.textContent.replace(btn.textContent, '') : el.textContent;
+          }},
+          // 4. Single select
+          { selector: `[data-testid="issue.issue-view-layout.issue-view-single-select-field.${fieldId}"] [data-testid="issue-field-inline-edit-read-view-container.ui.container"]`, extractor: (el) => {
+            const tag = el.querySelector('[data-testid*="option-tag"]');
+            if (tag) return tag.textContent;
+            const btn = el.querySelector('button');
+            return btn ? el.textContent.replace(btn.textContent, '') : el.textContent;
+          }},
+          // 5. Multi-select
+          { selector: `[data-testid="issue.views.field.select.common.select-inline-edit.${fieldId}"] [data-component-selector="jira-issue-view-select-inline-edit-read-view-container"]`, extractor: (el) => el.textContent },
+          // 6. User field
+          { selector: `[data-testid*="user-field.${fieldId}"] span[class*="_1reo15vq"]`, extractor: (el) => el.textContent },
+          // 7. Generic read-view
+          { selector: `[data-testid*="read-view.${fieldId}"]`, extractor: (el) => el.textContent },
+          // 8. Generic inline-edit
+          { selector: `[data-testid*="${fieldId}--container"]`, extractor: (el) => el.textContent }
+        ];
         
-        // 2. Для дат (из "Основных сведений" и др.)
-        if (!fieldValue) {
-          const dateField = document.querySelector(`[data-testid="issue.views.field.date-inline-edit.${fieldId}"]`);
-          if (dateField) {
-            const readView = dateField.querySelector('[data-testid="issue-field-inline-edit-read-view-container.ui.container"]');
-            if (readView) {
-              // Текст даты находится после кнопки
-              const buttonElement = readView.querySelector('button');
-              if (buttonElement) {
-                // Берем весь текст контейнера и удаляем текст кнопки
-                fieldValue = readView.textContent.replace(buttonElement.textContent, '').trim();
-              } else {
-                fieldValue = readView.textContent.trim();
+        for (const {selector, extractor} of valueSelectors) {
+          const element = document.querySelector(selector);
+          if (element) {
+            try {
+              const extracted = extractor(element);
+              if (extracted) {
+                fieldValue = extracted.trim();
+                break;
               }
+            } catch (e) {
+              // Игнорируем ошибки экстрактора и пробуем следующий
             }
           }
         }
         
-        // 3. Для select полей (одиночный выбор)
-        if (!fieldValue) {
-          const selectWrapper = document.querySelector(`[data-testid="issue.issue-view-layout.issue-view-single-select-field.${fieldId}"]`);
-          if (selectWrapper) {
-            const readView = selectWrapper.querySelector('[data-testid="issue-field-inline-edit-read-view-container.ui.container"]');
-            if (readView) {
-              // Для select с тегами
-              const optionTag = readView.querySelector('[data-testid*="option-tag"]');
-              if (optionTag) {
-                fieldValue = optionTag.textContent.trim();
-              } else {
-                // Для обычного текста (может быть плейсхолдер)
-                const buttonElement = readView.querySelector('button');
-                if (buttonElement) {
-                  fieldValue = readView.textContent.replace(buttonElement.textContent, '').trim();
-                } else {
-                  fieldValue = readView.textContent.trim();
-                }
-              }
-            }
-          }
-        }
-        
-        // 4. Для multi-select полей
-        if (!fieldValue) {
-          const multiSelectWrapper = document.querySelector(`[data-testid="issue.views.field.select.common.select-inline-edit.${fieldId}"]`);
-          if (multiSelectWrapper) {
-            const readViewContainer = multiSelectWrapper.querySelector('[data-component-selector="jira-issue-view-select-inline-edit-read-view-container"]');
-            if (readViewContainer) {
-              fieldValue = readViewContainer.textContent.trim();
-            }
-          }
-        }
-        
-        // 5. Для single-line-text полей (важно!)
-        if (!fieldValue) {
-          const singleLineTextField = document.querySelector(`[data-testid="issue.views.field.single-line-text.read-view.${fieldId}"]`);
-          if (singleLineTextField) {
-            // Для single-line-text может быть ссылка внутри
-            const linkElement = singleLineTextField.querySelector('a');
-            if (linkElement) {
-              fieldValue = linkElement.textContent.trim();
-            } else {
-              fieldValue = singleLineTextField.textContent.trim();
-            }
-          }
-        }
-        
-        // 6. Попробуем найти read-view для текстовых полей (общий случай)
-        if (!fieldValue) {
-          const readView = document.querySelector(`[data-testid*="read-view.${fieldId}"]`);
-          if (readView) {
-            fieldValue = readView.textContent.trim();
-          }
-        }
-        
-        // 7. Если не нашли, попробуем найти inline-edit контейнер
-        if (!fieldValue) {
-          const inlineEdit = document.querySelector(`[data-testid*="${fieldId}--container"]`);
-          if (inlineEdit) {
-            fieldValue = inlineEdit.textContent.trim();
-          }
-        }
-        
-        // 8. Для user полей
-        if (!fieldValue) {
-          const userField = document.querySelector(`[data-testid*="user-field.${fieldId}"]`);
-          if (userField) {
-            const userName = userField.querySelector('span[class*="_1reo15vq"]');
-            if (userName) {
-              fieldValue = userName.textContent.trim();
-            }
-          }
-        }
-        
-        // Фильтруем пустые и placeholder значения
-        const placeholders = ['Нет', 'Введите текст', 'Добавьте варианты', 'Добавьте дату', 'Выбрать', 'Редактировать', 'Закрепить вверху'];
-        
-        // Также удаляем aria-label и системный текст из значения
+        // === ОЧИСТКА ЗНАЧЕНИЯ ===
         if (fieldValue) {
-          // Удаляем текст кнопок редактирования, который может попасть в значение
-          fieldValue = fieldValue.replace(/Редактировать поле «.*?»/g, '').trim();
-          fieldValue = fieldValue.replace(/Добавить.*?, edit/g, '').trim();
-          fieldValue = fieldValue.replace(/Изменить.*?, edit/g, '').trim();
-          fieldValue = fieldValue.replace(/Отредактировать поле.*?edit/g, '').trim();
-          // Удаляем текст из тултипов кнопок закрепления
-          fieldValue = fieldValue.replace(/Закрепить вверху.*?$/g, '').trim();
-          fieldValue = fieldValue.replace(/Открепить сверху.*?$/g, '').trim();
-          // Удаляем другие системные тексты
-          fieldValue = fieldValue.replace(/Закрепленные поля видны только вам\.?/g, '').trim();
+          // Удаляем системный текст одним регулярным выражением
+          fieldValue = fieldValue
+            .replace(/Редактировать поле «.*?»|Добавить.*?, edit|Изменить.*?, edit|Отредактировать поле.*?edit|Закрепить вверху.*?$|Открепить сверху.*?$|Закрепленные поля видны только вам\.?/g, '')
+            .trim();
         }
+        
+        // === ВАЛИДАЦИЯ И СОХРАНЕНИЕ ===
+        const placeholders = ['Нет', 'Введите текст', 'Добавьте варианты', 'Добавьте дату', 'Выбрать', 'Редактировать', 'Закрепить вверху'];
         
         if (fieldValue && !placeholders.includes(fieldValue) && fieldName) {
           customFields.set(fieldId, {
@@ -1498,21 +1705,104 @@ class JiraNotesExtension {
       const deviceType = this.detectDeviceType(issueData.fields);
       console.log(`  🖥️ Device type detected: ${deviceType}`);
 
-      // Сохраняем в localStorage (и данные карточки, и тип устройства отдельно)
-      const dataKey = `issuedata_${this.currentIssueKey}`;
-      const deviceTypeKey = `devicetype_${this.currentIssueKey}`;
-      
-      await chrome.storage.local.set({
-        [dataKey]: issueData,
-        [deviceTypeKey]: deviceType
-      });
+      // КРИТИЧНАЯ ПРОВЕРКА: Убедимся что задача не изменилась
+      if (this.currentIssueKey !== targetIssueKey) {
+        console.warn(`⚠️ Issue changed during extraction! Was extracting ${targetIssueKey}, now on ${this.currentIssueKey}. Discarding data.`);
+        return null;
+      }
 
-      console.log(`✅ Full issue data saved for ${this.currentIssueKey}:`, customFields.size, 'custom fields');
+      // Проверяем что извлечены осмысленные данные
+      if (customFields.size === 0) {
+        console.error(`❌ No fields extracted for ${targetIssueKey}! Modal may not be fully loaded.`);
+        return null; // Сигнал для повторной попытки
+      }
+      
+      if (customFields.size < 3) {
+        console.warn(`⚠️ Only ${customFields.size} fields extracted, data may be incomplete`);
+      }
+
+      // Интегрированное извлечение адреса(ов) и офиса (за один проход)
+      let address = null;
+      let officeCode = null;
+      if (this.officeDetectionEnabled) {
+        const address1 = issueData.fields.customfield_11120?.value;
+        const address2 = issueData.fields.customfield_10994?.value; // второй адрес из старой версии
+        const combined = [address1, address2].filter(v => v && v.trim()).join(' | ');
+        address = combined || address1 || address2 || null;
+        if (address) {
+          // Передаем массив для многоисточникового поиска
+          const officeSourceArray = [address1, address2].filter(Boolean);
+          officeCode = this.getOfficeCode(officeSourceArray);
+        }
+      }
+
+      // Сохраняем в localStorage (все данные одним вызовом!)
+      const saveData = {
+        [`issuedata_${targetIssueKey}`]: issueData,
+        [`devicetype_${targetIssueKey}`]: deviceType
+      };
+      
+      if (address) {
+        saveData[`address_${targetIssueKey}`] = address;
+      }
+      
+      const attemptIdx = this.extractionAttempts[targetIssueKey] || 0;
+      let savedOfficeCode = false;
+      if (officeCode) {
+        const isProvisionalUnknown = officeCode === 'ХЗ' && attemptIdx < this.maxExtractionAttempts - 1;
+        if (!isProvisionalUnknown) {
+          saveData[`code_${targetIssueKey}`] = officeCode;
+          savedOfficeCode = true;
+          console.log(`💾 Saving office code for ${targetIssueKey}: "${officeCode}" (attempt ${attemptIdx + 1})`);
+        } else {
+          // НЕ сохраняем и НЕ кладём в codeCache, чтобы renderer показывал адрес (если есть) или ничего
+          console.log(`⏳ Provisional office code "${officeCode}" for ${targetIssueKey} (attempt ${attemptIdx + 1}) - will retry before saving`);
+        }
+      } else {
+        console.log(`⚠️ No office code to save for ${targetIssueKey} (address: "${address || 'none'}")`);
+      }
+      
+      // КРИТИЧНО: Сначала сохраняем в storage, ПОТОМ обновляем кеш
+      await chrome.storage.local.set(saveData);
+
+      console.log(`✅ Full issue data saved for ${targetIssueKey}:`, customFields.size, 'custom fields');
+      
+      // Обновляем кеши ПОСЛЕ успешного сохранения в storage
+      this.deviceTypeCache[targetIssueKey] = deviceType;
+      if (address) this.addressCache[targetIssueKey] = address;
+      if (savedOfficeCode) {
+        this.codeCache[targetIssueKey] = officeCode;
+      } else if (officeCode === 'ХЗ') {
+        // Удаляем возможный старый код из предыдущей задачи, чтобы не показать преждевременно
+        delete this.codeCache[targetIssueKey];
+      }
+      
+      this.log(`[EXTRACTION] ✅ Caches updated for ${targetIssueKey}:`);
+      this.log(`[EXTRACTION]   - officeCode: "${officeCode || 'none'}"`);
+      this.log(`[EXTRACTION]   - address: "${address || 'none'}"`);
+      this.log(`[EXTRACTION]   - deviceType: "${deviceType}"`);
+      
+      // Карточка обновится автоматически через chrome.storage.onChanged listener
+      
       return issueData;
 
     } catch (error) {
       console.error('❌ Error extracting issue data:', error);
       return null;
+    }
+  }
+
+  // Инвалидация кешей для задачи (перед началом новой экстракции)
+  invalidateIssueCaches(issueKey) {
+    delete this.codeCache[issueKey];
+    delete this.addressCache[issueKey];
+    delete this.deviceTypeCache[issueKey];
+    // Удаляем из chrome.storage (не критично если не существует)
+    try {
+      chrome.storage.local.remove([`code_${issueKey}`, `address_${issueKey}`, `devicetype_${issueKey}`]);
+      console.log(`[INVALIDATE] Cleared caches for ${issueKey}`);
+    } catch (e) {
+      console.warn(`[INVALIDATE] Failed to remove storage keys for ${issueKey}:`, e);
     }
   }
 
@@ -1539,6 +1829,157 @@ class JiraNotesExtension {
     
     // Все остальное (периферия, телефоны, другое оборудование) - other
     return 'other';
+  }
+
+  // НОВОЕ: Умное извлечение ФИО из summary через regex
+  extractFullNameFromSummary(summaryText) {
+    if (!summaryText) return null;
+    
+    // Паттерны для поиска ФИО в названии задачи
+    const patterns = [
+      // "Трудоустройство кандидата / Королев Лев Игоревич / 2025-11-17"
+      /\/\s*([А-ЯЁ][а-яё]+)\s+([А-ЯЁ][а-яё]+)(?:\s+([А-ЯЁ][а-яё]+))?\s*\//,
+      // "Новый сотрудник / Домиенко Арина  /  Техника"
+      /Новый сотрудник.*?\/\s*([А-ЯЁ][а-яё]+)\s+([А-ЯЁ][а-яё]+)(?:\s+([А-ЯЁ][а-яё]+))?\s/,
+      // "Увольнение  Неборака Валерия КДП"
+      /Увольнение\s+([А-ЯЁ][а-яё]+)\s+([А-ЯЁ][а-яё]+)(?:\s+([А-ЯЁ][а-яё]+))?\s/,
+      // "Кравченко Егор     Платежки" (в начале строки)
+      /^([А-ЯЁ][а-яё]+)\s+([А-ЯЁ][а-яё]+)(?:\s+([А-ЯЁ][а-яё]+))?\s+/,
+      // Общий паттерн: Фамилия Имя [Отчество]
+      /\b([А-ЯЁ][а-яё]{2,})\s+([А-ЯЁ][а-яё]{2,})(?:\s+([А-ЯЁ][а-яё]{2,}))?\b/
+    ];
+    
+    for (const pattern of patterns) {
+      const match = summaryText.match(pattern);
+      if (match) {
+        const lastName = match[1];
+        const firstName = match[2];
+        const patronymic = match[3] || '';
+        
+        // Исключаем ложные срабатывания (известные названия отделов/должностей)
+        const excludeWords = ['Платежки', 'Техника', 'Разработка', 'Development', 'Payment', 'Support'];
+        if (excludeWords.some(word => [lastName, firstName, patronymic].includes(word))) {
+          continue;
+        }
+        
+        return {
+          fullName: `${lastName} ${firstName} ${patronymic}`.trim(),
+          lastName,
+          firstName,
+          patronymic,
+          source: 'summary (regex)'
+        };
+      }
+    }
+    
+    return null;
+  }
+
+  // НОВОЕ: Умное извлечение всех вариантов для категории поля
+  async extractSmartFieldVariants(category, issueData) {
+    if (!this.smartFieldConfig[category]) {
+      console.warn(`Unknown smart field category: ${category}`);
+      return [];
+    }
+    
+    const config = this.smartFieldConfig[category];
+    const variants = [];
+    
+    for (const priorityItem of config.priority) {
+      // Обработка композитных полей (например, "composite:10587+10588+10589")
+      if (priorityItem.startsWith('composite:')) {
+        const fieldIds = priorityItem.replace('composite:', '').split('+');
+        const values = fieldIds.map(id => {
+          const fullId = id.startsWith('customfield_') ? id : `customfield_${id}`;
+          return issueData.fields[fullId]?.value || '';
+        }).filter(v => v);
+        
+        if (values.length > 0) {
+          const compositeValue = values.join(' ').trim();
+          if (config.validator(compositeValue)) {
+            variants.push({
+              value: config.formatter(compositeValue),
+              source: `Композит (${fieldIds.join('+')})`,
+              fieldIds: fieldIds,
+              priority: config.priority.indexOf(priorityItem) + 1,
+              warning: config.warning ? config.warning(compositeValue) : null,
+              isComposite: true
+            });
+          }
+        }
+      }
+      // Обработка regex-полей (например, "regex:summary")
+      else if (priorityItem.startsWith('regex:')) {
+        const sourceField = priorityItem.replace('regex:', '');
+        const sourceValue = issueData.fields[sourceField]?.value;
+        
+        if (sourceValue && category === 'fullname') {
+          const extracted = this.extractFullNameFromSummary(sourceValue);
+          if (extracted) {
+            variants.push({
+              value: extracted.fullName,
+              source: extracted.source,
+              fieldIds: [sourceField],
+              priority: config.priority.indexOf(priorityItem) + 1,
+              warning: '⚠️ Извлечено через regex, может быть неточным',
+              isRegex: true,
+              details: extracted
+            });
+          }
+        }
+      }
+      // Обработка обычных полей
+      else {
+        const fieldId = priorityItem;
+        const fieldData = issueData.fields[fieldId];
+        
+        if (fieldData && fieldData.value) {
+          const value = fieldData.value;
+          
+          // Специальная обработка для телефона: проверяем что это действительно телефон, а не telegram
+          if (category === 'phone' && fieldId === 'customfield_11087') {
+            // Если содержит @ - это telegram, пропускаем
+            if (value.includes('@')) {
+              continue;
+            }
+          }
+          
+          // Специальная обработка для telegram: проверяем что это действительно telegram, а не телефон
+          if (category === 'telegram' && fieldId === 'customfield_11087') {
+            // Если похоже на номер телефона - пропускаем
+            if (value.match(/^[+\d\s()-]+$/) && !value.includes('@')) {
+              continue;
+            }
+          }
+          
+          if (config.validator(value)) {
+            variants.push({
+              value: config.formatter(value),
+              source: fieldData.label || fieldId,
+              fieldIds: [fieldId],
+              priority: config.priority.indexOf(priorityItem) + 1,
+              warning: config.warning ? config.warning(value) : null,
+              isRegular: true
+            });
+          } else {
+            // Добавляем невалидные значения с предупреждением
+            variants.push({
+              value: value,
+              source: fieldData.label || fieldId,
+              fieldIds: [fieldId],
+              priority: config.priority.indexOf(priorityItem) + 1,
+              warning: config.warning ? config.warning(value) : '⚠️ Значение не прошло валидацию',
+              isInvalid: true
+            });
+          }
+        }
+      }
+    }
+    
+    // Сортируем по приоритету (меньше = выше приоритет)
+    variants.sort((a, b) => a.priority - b.priority);
+    
+    return variants;
   }
 
   // Сохранение заметок
@@ -1611,8 +2052,7 @@ class JiraNotesExtension {
       // МГНОВЕННО обновляем конкретную карточку
       this.updateSingleCard(this.currentIssueKey);
       
-      // Обновляем все карточки на доске
-      this.updateAllCards();
+      // НЕ вызываем updateAllCards - достаточно обновить одну карточку
     } catch (error) {
       console.error('Error saving status:', error);
     }
@@ -1632,6 +2072,12 @@ class JiraNotesExtension {
 
   // Обновляем ВСЕ карточки на доске (ОПТИМИЗИРОВАННАЯ v5 - с RAF batching)
   async updateAllCards() {
+    // Защита от параллельных вызовов
+    if (this._updateInProgress) {
+      console.log('⏸️ Update already in progress, skipping duplicate call');
+      return;
+    }
+    
     // Создаем debounced версию при первом вызове
     if (!this._updateAllCardsDebounced) {
       this._updateAllCardsDebounced = debounceLeading(
@@ -1644,8 +2090,36 @@ class JiraNotesExtension {
   }
 
   // НОВЫЙ МЕТОД: Мгновенное обновление одной конкретной карточки (без debounce)
-  updateSingleCard(issueKey, retryCount = 0) {
+  async updateSingleCard(issueKey, retryCount = 0) {
     if (!issueKey) return;
+    
+    this.log(`[UPDATE_CARD] 🔄 updateSingleCard called for ${issueKey} (retry ${retryCount})`);
+    this.log(`[UPDATE_CARD]   - codeCache[${issueKey}]: ${this.codeCache[issueKey] || 'undefined'}`);
+    
+    // КРИТИЧНО: Синхронизируем кеш с chrome.storage перед обновлением
+    try {
+      const result = await chrome.storage.local.get([`code_${issueKey}`, `address_${issueKey}`]);
+      const storedCode = result[`code_${issueKey}`];
+      const storedAddress = result[`address_${issueKey}`];
+      
+      this.log(`[UPDATE_CARD]   - storedCode: ${storedCode || 'undefined'}`);
+      this.log(`[UPDATE_CARD]   - storedAddress: ${storedAddress || 'undefined'}`);
+      
+      // Синхронизируем кеш с реальными данными
+      if (storedCode !== undefined) {
+        this.codeCache[issueKey] = storedCode;
+      } else {
+        delete this.codeCache[issueKey];
+      }
+      
+      if (storedAddress !== undefined) {
+        this.addressCache[issueKey] = storedAddress;
+      } else {
+        delete this.addressCache[issueKey];
+      }
+    } catch (err) {
+      console.error(`[UPDATE_CARD] Error syncing cache for ${issueKey}:`, err);
+    }
     
     // Внутренняя функция для попытки обновления
     const tryUpdate = () => {
@@ -1899,152 +2373,8 @@ class JiraNotesExtension {
     
     // Вспомогательный метод для применения модификаций карточки
     this._applyCardModifications = (cardContainer, link, issueKey) => {
-      // Если контекст расширения недействителен (обновление/перезагрузка) — тихо выходим
-      if (!chrome.runtime?.id) {
-        return;
-      }
-
-      // Безопасный доступ к ресурсам расширения (предотвращает Extension context invalidated)
-      const safeGetUrl = (path) => {
-        try {
-          if (chrome.runtime?.id && typeof chrome.runtime.getURL === 'function') {
-            return chrome.runtime.getURL(path);
-          }
-        } catch (e) {
-          return null;
-        }
-        return null;
-      };
-      // Статус - обновляем существующий или создаем новый
-      let statusDot = cardContainer.querySelector('.jira-personal-status');
-      if (this.statusCache[issueKey]) {
-        const statusData = this.statusesMetadata[this.statusCache[issueKey]] || { 
-          name: 'Неизвестно', 
-          color: '#9ca3af', 
-          emoji: '' 
-        };
-        
-        if (!statusDot) {
-          statusDot = document.createElement('div');
-          statusDot.className = 'jira-personal-status';
-          statusDot.setAttribute('data-issue-key', issueKey);
-          cardContainer.appendChild(statusDot);
-        }
-        
-        // Обновляем только если изменилось
-        if (statusDot.style.background !== statusData.color) {
-          statusDot.style.background = statusData.color;
-          statusDot.title = `Статус: ${statusData.name}`;
-        }
-      } else if (statusDot) {
-        // Удаляем если статус был удален
-        statusDot.remove();
-      }
-
-      // Иконка устройства - обновляем существующую или создаем новую
-      let deviceIcon = cardContainer.querySelector('.jira-device-icon');
-      if (this.deviceTypeCache[issueKey]) {
-        const deviceType = this.deviceTypeCache[issueKey];
-        
-        if (!deviceIcon) {
-          deviceIcon = document.createElement('img');
-          deviceIcon.className = 'jira-device-icon';
-          deviceIcon.setAttribute('loading', 'lazy');
-          deviceIcon.setAttribute('data-issue-key', issueKey);
-          cardContainer.appendChild(deviceIcon);
-        }
-        
-        // Определяем URL иконки
-        let iconUrl;
-        let title;
-        if (deviceType === 'apple') {
-          iconUrl = safeGetUrl('icons/mac_OS_128px.svg');
-          title = 'Apple/MacBook';
-        } else if (deviceType === 'windows') {
-          iconUrl = safeGetUrl('icons/win_128.svg');
-          title = 'Windows';
-        } else {
-          iconUrl = safeGetUrl('icons/other.svg');
-          title = 'Другое оборудование';
-        }
-        
-        // Обновляем только если изменилось
-        if (iconUrl && deviceIcon.dataset.src !== iconUrl && deviceIcon.src !== iconUrl) {
-          deviceIcon.dataset.src = iconUrl;
-          deviceIcon.title = title;
-          try {
-            this.lazyLoadImage(deviceIcon);
-          } catch (e) {
-            // Игнорируем если контекст недействителен
-          }
-        }
-      } else if (deviceIcon) {
-        // Удаляем если тип устройства был удален
-        deviceIcon.remove();
-      }
-      
-      // Код офиса - обновляем существующий или создаем новый
-      let codeSpan = link.querySelector('.jira-personal-code-inline');
-      if (this.officeDetectionEnabled && this.codeCache[issueKey]) {
-        if (!codeSpan) {
-          // Скрываем стандартный текст с issue key
-          const childDivs = link.querySelectorAll('div');
-          childDivs.forEach(div => {
-            if (div.textContent.includes(issueKey) && 
-                !div.classList.contains('jira-personal-code-inline') &&
-                !div.classList.contains('jira-personal-address-inline')) {
-              div.style.display = 'none';
-            }
-          });
-          
-          codeSpan = document.createElement('div');
-          codeSpan.className = 'jira-personal-code-inline';
-          link.appendChild(codeSpan);
-        }
-        
-        // Обновляем только если изменилось
-        if (codeSpan.textContent !== this.codeCache[issueKey]) {
-          codeSpan.textContent = this.codeCache[issueKey];
-          codeSpan.title = `Офис: ${this.codeCache[issueKey]} (${issueKey})`;
-          
-          if (this.codeCache[issueKey] === 'ХЗ') {
-            codeSpan.style.color = '#9ca3af';
-            codeSpan.style.fontStyle = 'italic';
-          } else {
-            codeSpan.style.color = '';
-            codeSpan.style.fontStyle = '';
-          }
-        }
-      }
-      // Адрес (если нет кода) - обновляем существующий или создаем новый
-      else if (this.officeDetectionEnabled && this.addressCache[issueKey]) {
-        let addressSpan = link.querySelector('.jira-personal-address-inline');
-        
-        if (!addressSpan) {
-          // Скрываем стандартный текст с issue key
-          const childDivs = link.querySelectorAll('div');
-          childDivs.forEach(div => {
-            if (div.textContent.includes(issueKey) && !div.classList.contains('jira-personal-address-inline')) {
-              div.style.display = 'none';
-            }
-          });
-          
-          addressSpan = document.createElement('div');
-          addressSpan.className = 'jira-personal-address-inline';
-          link.appendChild(addressSpan);
-        }
-        
-        // Обновляем только если изменилось
-        const newText = ` ${this.addressCache[issueKey]}`;
-        if (addressSpan.textContent !== newText) {
-          addressSpan.textContent = newText;
-          addressSpan.title = `Адрес: ${this.addressCache[issueKey]} (${issueKey})`;
-        }
-      } else {
-        // Удаляем код/адрес если были удалены
-        if (codeSpan) codeSpan.remove();
-        const addressSpan = link.querySelector('.jira-personal-address-inline');
-        if (addressSpan) addressSpan.remove();
+      if (window.JiraRenderer && typeof window.JiraRenderer.applyCardModifications === 'function') {
+        window.JiraRenderer.applyCardModifications(this, cardContainer, link, issueKey);
       }
     };
 
@@ -2057,6 +2387,10 @@ class JiraNotesExtension {
         console.log('Issue changed:', lastIssueKey, '->', newIssueKey);
         lastIssueKey = newIssueKey;
         this.currentIssueKey = newIssueKey;
+        // Сбрасываем предыдущие данные новой задачи перед экстракцией
+        this.invalidateIssueCaches(newIssueKey);
+        this.extractionAttempts[newIssueKey] = 0; // обнуляем счётчик попыток
+        this.pendingIssues[newIssueKey] = true; // ставим флаг ожидания
         
         // Обновляем существующую панель
         const panel = document.querySelector('.jira-notes-panel');
@@ -2067,6 +2401,12 @@ class JiraNotesExtension {
           }
           panel.style.display = 'block';
         }
+        
+        // КРИТИЧНО: Извлекаем данные новой задачи
+        console.log('📊 Extracting data for issue change:', newIssueKey);
+        this.extractAndSaveAllIssueData(newIssueKey).catch(err => {
+          console.error(`Failed to extract data for ${newIssueKey}:`, err);
+        });
         
         // Загружаем новые данные
         setTimeout(() => this.loadNotes(), 300);
@@ -2169,21 +2509,21 @@ class JiraNotesExtension {
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       if (request.action === "getIssueDataForTemplate") {
         console.log("Received request for template data from settings page.");
-        
-        // Собираем данные для шаблона из текущей задачи
-        const issueData = this.collectDataForTemplate();
-        
-        // Отправляем данные обратно на страницу настроек
-        sendResponse({ data: issueData });
-        
-        // Возвращаем true, чтобы указать, что ответ будет асинхронным
-        return true; 
+        // Собираем асинхронно данные для шаблона (фикс: раньше Promise не ожидался)
+        this.collectDataForTemplate().then(issueData => {
+          sendResponse({ data: issueData });
+        }).catch(err => {
+          console.error('❌ Failed to collect template data:', err);
+          sendResponse({ data: null, error: err?.message || 'unknown error' });
+        });
+        // Сообщаем что ответ будет асинхронным
+        return true;
       }
     });
   }
 
   // НОВОЕ: Сбор данных для шаблона
-  collectDataForTemplate() {
+  async collectDataForTemplate() {
     if (!this.currentIssueKey) {
       return null;
     }
@@ -2193,7 +2533,7 @@ class JiraNotesExtension {
     };
 
     // Используем данные, которые мы уже собрали в extractAndSaveAllIssueData
-    const allFieldsData = this.extractAndSaveAllIssueData();
+    const allFieldsData = await this.extractAndSaveAllIssueData(this.currentIssueKey);
     if (allFieldsData && allFieldsData.fields) {
         for (const [fieldId, fieldData] of Object.entries(allFieldsData.fields)) {
             // Для обратной совместимости и удобства, дублируем некоторые поля
@@ -2234,6 +2574,13 @@ class JiraNotesExtension {
             }
             panel.style.display = 'block';
             this.loadNotes();
+            
+            // НОВОЕ: Извлекаем данные новой задачи для копипасты (асинхронно, не блокируем UI)
+            console.log('📊 Extracting data for new issue:', newIssueKey);
+            // КРИТИЧНО: Передаём issueKey явно чтобы избежать race condition
+            this.extractAndSaveAllIssueData(newIssueKey).catch(err => {
+              console.error(`Failed to extract data for ${newIssueKey}:`, err);
+            });
           } else {
             this.injectNotesPanel();
           }
@@ -2278,15 +2625,30 @@ class JiraNotesExtension {
         return;
       }
 
-      // 2. Загружаем данные текущей задачи
+      // 2. Загружаем данные текущей задачи (уже должны быть извлечены при открытии)
       const issueDataKey = `issuedata_${this.currentIssueKey}`;
       const result = await chrome.storage.local.get(issueDataKey);
-      const issueData = result[issueDataKey];
+      let issueData = result[issueDataKey];
+
+      // Если данных нет или они старые (> 1 минуты), переизвлекаем
+      if (!issueData || !issueData.fields || !issueData.extractedAt) {
+        console.log('⚠️ No cached data, extracting fresh data...');
+        issueData = await this.extractAndSaveAllIssueData(this.currentIssueKey);
+      } else {
+        const age = Date.now() - new Date(issueData.extractedAt).getTime();
+        if (age > 60000) { // > 1 минуты
+          console.log(`⚠️ Data is old (${Math.round(age/1000)}s), re-extracting...`);
+          issueData = await this.extractAndSaveAllIssueData(this.currentIssueKey);
+        } else {
+          console.log(`✅ Using cached data (age: ${Math.round(age/1000)}s)`);
+        }
+      }
 
       if (!issueData || !issueData.fields) {
-        this.showCopypasteNotification('⚠️ Нет данных по этой задаче. Перезагрузите страницу (F5)', 'warning');
+        this.showCopypasteNotification('⚠️ Не удалось извлечь данные задачи. Подождите загрузки страницы', 'warning');
         return;
       }
+      console.log('✅ Issue data ready:', Object.keys(issueData.fields).length, 'fields');
 
       // 3. Заполняем шаблон данными
       let filledTemplate = copypasteTemplate;
@@ -2308,7 +2670,7 @@ class JiraNotesExtension {
         .replace(/{{SUMMARY}}/g, issueData.fields?.summary?.value || '');
 
       // 4. Показываем окно предпросмотра
-      this.showCopypastePreview(filledTemplate);
+      this.showCopypastePreview(filledTemplate, issueData);
       
       console.log('✅ Copypaste preview opened');
 
@@ -2319,96 +2681,140 @@ class JiraNotesExtension {
   }
 
   // Показать окно предпросмотра копипасты
-  async showCopypastePreview(content) {
+  async showCopypastePreview(content, issueData) {
     // Удаляем предыдущее окно предпросмотра, если есть
     const existingPreview = document.querySelector('.jira-copypaste-preview-modal');
     if (existingPreview) {
       existingPreview.remove();
     }
 
-    // Загружаем данные текущей задачи для конструктора
-    const issueDataKey = `issuedata_${this.currentIssueKey}`;
-    const result = await chrome.storage.local.get(issueDataKey);
-    const issueData = result[issueDataKey];
+    // Данные уже переданы как параметр
+    console.log(`📂 Loaded issueData for preview:`, issueData);
+    console.log(`📂 Fields count:`, issueData?.fields ? Object.keys(issueData.fields).length : 0);
+    
+    // НОВОЕ: Извлекаем умные варианты для каждой категории
+    const smartFields = {};
+    if (issueData && issueData.fields) {
+      console.log('🔍 Extracting smart fields, issueData has', Object.keys(issueData.fields).length, 'fields');
+      for (const category of ['fullname', 'address', 'telegram', 'phone', 'equipment', 'peripherals', 'description']) {
+        smartFields[category] = await this.extractSmartFieldVariants(category, issueData);
+        console.log(`📊 Smart field variants for ${category}:`, smartFields[category].length, 'variants');
+      }
+    } else {
+      console.error('❌ No issueData or issueData.fields available!');
+    }
 
-    // Создаём HTML для полей конструктора
-    let fieldsHTML = '<p class="jira-preview-no-fields">Нет данных</p>';
+    // Создаём HTML для умных полей (радио-группы)
+    let smartFieldsHTML = '';
+    
+    if (Object.keys(smartFields).length > 0) {
+      smartFieldsHTML = '<div class="jira-smart-fields-section">';
+      smartFieldsHTML += '<div class="jira-preview-field-group-header">━━━ Основные данные ━━━</div>';
+      
+      for (const [category, variants] of Object.entries(smartFields)) {
+        const config = this.smartFieldConfig[category];
+        if (!variants || variants.length === 0) continue;
+        
+        smartFieldsHTML += `
+          <div class="jira-smart-field-group" data-category="${category}">
+            <div class="jira-smart-field-header">
+              <strong>${config.label}</strong>
+              <button class="jira-smart-field-insert-btn" data-placeholder="{{${config.placeholder}}}" title="Вставить плейсхолдер {{${config.placeholder}}} в текст">
+                ↓ Вставить
+              </button>
+            </div>
+        `;
+        
+        variants.forEach((variant, index) => {
+          const isRecommended = index === 0 && !variant.isInvalid;
+          const warningIcon = variant.warning ? '⚠️' : '';
+          const recommendedBadge = isRecommended ? '<span class="jira-field-recommended-badge" title="Рекомендуется">⭐</span>' : '';
+          const invalidClass = variant.isInvalid ? 'jira-smart-field-invalid' : '';
+          
+          smartFieldsHTML += `
+            <div class="jira-smart-field-option ${invalidClass}">
+              <label class="jira-smart-field-radio-label">
+                <input type="radio" name="smart-field-${category}" value="${this.escapeHtml(variant.value)}" ${index === 0 ? 'checked' : ''}>
+                <div class="jira-smart-field-content">
+                  <div class="jira-smart-field-value">
+                    ${warningIcon} ${this.escapeHtml(variant.value)} ${recommendedBadge}
+                  </div>
+                  <div class="jira-smart-field-source">${variant.source}</div>
+                  ${variant.warning ? `<div class="jira-smart-field-warning">${variant.warning}</div>` : ''}
+                </div>
+              </label>
+            </div>
+          `;
+        });
+        
+        smartFieldsHTML += '</div>';
+      }
+      
+      smartFieldsHTML += '</div>';
+    }
+
+    // Создаём HTML для дополнительных полей (как раньше)
+    let additionalFieldsHTML = '<p class="jira-preview-no-fields">Нет данных</p>';
     
     if (issueData && issueData.fields) {
       // Список полей, которые НИКОГДА не нужны (фильтруем полностью)
       const excludedFields = [
-        'customfield_17754', // Схема безопасности
-        'customfield_14246', // Задача с портала
-        'customfield_11174', // ГЕО
-        'customfield_11119', // Дата и время получения оборудования
-        'customfield_11124'  // Наличие аппрува от руководителя
+        'customfield_17754', 'customfield_14246', 'customfield_11174',
+        'customfield_11119', 'customfield_11124',
+        // Также исключаем поля, которые уже в умном селекторе
+        'customfield_10212', 'customfield_10587', 'customfield_10588', 'customfield_10589',
+        'customfield_11120', 'customfield_10994', 'customfield_11138', 'customfield_10560',
+        'customfield_11062', 'customfield_11087', 'customfield_11121',
+        'customfield_11122', 'customfield_11123', 'summary'
       ];
       
-      // Список ID важных полей для группы "Основные"
       const mainFields = [
-        'summary',           // Название заявки
-        'customfield_11062', // Телеграм сотрудника
-        'customfield_11087', // Ваш телеграм/Your Telegram
-        'customfield_11122', // Выберите тип оборудования
-        'customfield_11123', // Периферия
-        'customfield_11120', // Офис или Адрес
-        'customfield_11121'  // Номер телефона для курьера
+        'customfield_11009', 'customfield_10229', 'customfield_11118'
       ];
       
-      // Группируем поля по категориям
       const groups = {
-        'Основные': [],
-        'Дополнительно': []
+        '📋 Основные': [],
+        '➕ Дополнительно': []
       };
 
-      // Сначала добавляем важные поля в "Основные"
-      mainFields.forEach(fieldId => {
-        const fieldData = issueData.fields[fieldId];
-        if (fieldData && fieldData.value) {
-          groups['Основные'].push({ 
-            id: fieldId, 
-            label: fieldData.label, 
-            value: fieldData.value 
-          });
-        }
-      });
-
-      // Остальные поля добавляем в "Дополнительно" (кроме исключенных)
+      // Категоризация полей
       for (const [fieldId, fieldData] of Object.entries(issueData.fields)) {
-        // Пропускаем если это поле уже в основных или в исключенных
-        if (mainFields.includes(fieldId) || excludedFields.includes(fieldId)) {
-          continue;
+        if (excludedFields.includes(fieldId) || !fieldData.value) continue;
+        
+        let category = '➕ Дополнительно';
+        
+        if (mainFields.includes(fieldId)) {
+          category = '📋 Основные';
         }
         
-        // Добавляем в дополнительные
-        if (fieldData.value) {
-          groups['Дополнительно'].push({ 
-            id: fieldId, 
-            label: fieldData.label, 
-            value: fieldData.value 
-          });
-        }
+        groups[category].push({ 
+          id: fieldId, 
+          label: fieldData.label, 
+          value: fieldData.value 
+        });
       }
 
       // Создаём HTML
       let groupsHTML = '';
+      groupsHTML += '<div class="jira-preview-field-group-header">━━━ Все остальные поля ━━━</div>';
+      
       for (const groupName in groups) {
         const groupFields = groups[groupName];
         if (groupFields.length > 0) {
-          groupsHTML += `<div class="jira-preview-field-group-header">${groupName}</div>`;
+          groupsHTML += `<div class="jira-preview-field-subgroup-header">${groupName}</div>`;
           groupFields.forEach(field => {
-            const shortValue = field.value ? (field.value.length > 30 ? field.value.substring(0, 30) + '...' : field.value) : '—';
+            const shortValue = field.value.length > 30 ? field.value.substring(0, 30) + '...' : field.value;
             groupsHTML += `
-              <div class="jira-preview-field-pill" draggable="true" data-placeholder="{{${field.id}}}" title="${field.label}: ${field.value || 'пусто'}">
-                <span class="jira-preview-field-label">${field.label}</span>
-                <span class="jira-preview-field-value">${shortValue}</span>
+              <div class="jira-preview-field-pill" draggable="true" data-placeholder="{{${field.id}}}" title="${this.escapeHtml(field.label)}: ${this.escapeHtml(field.value)}">
+                <span class="jira-preview-field-label">${this.escapeHtml(field.label)}</span>
+                <span class="jira-preview-field-value">${this.escapeHtml(shortValue)}</span>
               </div>
             `;
           });
         }
       }
       
-      fieldsHTML = groupsHTML;
+      additionalFieldsHTML = groupsHTML;
     }
 
     // Создаём модальное окно
@@ -2435,10 +2841,11 @@ class JiraNotesExtension {
           <div class="jira-copypaste-preview-right">
             <div class="jira-preview-fields-header">
               <strong>Поля задачи</strong>
-              <small>Перетащите в текст</small>
+              <small>Выберите и вставьте</small>
             </div>
             <div class="jira-preview-fields-container">
-              ${fieldsHTML}
+              ${smartFieldsHTML}
+              ${additionalFieldsHTML}
             </div>
           </div>
         </div>
@@ -2459,12 +2866,56 @@ class JiraNotesExtension {
     const textarea = modal.querySelector('.jira-copypaste-preview-textarea');
     const resultDiv = modal.querySelector('.jira-copypaste-preview-result');
     const fieldPills = modal.querySelectorAll('.jira-preview-field-pill');
+    const smartFieldInsertBtns = modal.querySelectorAll('.jira-smart-field-insert-btn');
+
+    // НОВОЕ: Функция получения выбранных значений из умных полей
+    const getSmartFieldValues = () => {
+      const values = {};
+      for (const category of ['fullname', 'address', 'telegram', 'phone', 'equipment', 'peripherals', 'description']) {
+        const radio = modal.querySelector(`input[name="smart-field-${category}"]:checked`);
+        if (radio) {
+          values[category] = radio.value;
+        }
+      }
+      return values;
+    };
 
     // Функция замены плейсхолдеров на реальные значения
     const replacePlaceholders = (text) => {
       if (!issueData || !issueData.fields) return text;
       
       let result = text;
+      
+      // НОВОЕ: Заменяем умные плейсхолдеры на выбранные значения
+      const smartValues = getSmartFieldValues();
+      for (const [category, value] of Object.entries(smartValues)) {
+        const config = this.smartFieldConfig[category];
+        if (config && value) {
+          const placeholder = new RegExp(`{{${config.placeholder}}}`, 'g');
+          result = result.replace(placeholder, value);
+        }
+      }
+      
+      // НОВОЕ: Аккуратно обрабатываем незамещённые умные плейсхолдеры.
+      // Вместо удаления всей строки – удаляем ТОЛЬКО сам токен. Строка остаётся,
+      // и если после удаления она пуста (только пробелы/точки), будет очищена позже.
+      const smartPlaceholders = Object.values(this.smartFieldConfig).map(c => c.placeholder);
+      result = result
+        .split('\n')
+        .map(line => {
+          let processed = line;
+          smartPlaceholders.forEach(ph => {
+            if (processed.includes(`{{${ph}}}`)) {
+              // Заменяем незаполненный плейсхолдер на '' (без пробела чтобы не оставлять хвосты)
+              processed = processed.replace(new RegExp(`{{${ph}}}`, 'g'), '');
+            }
+          });
+          // Убираем лишние двойные пробелы, ведущие/концевые пробелы
+          processed = processed.replace(/\s{2,}/g, ' ').replace(/^\s+$/,'');
+          return processed;
+        })
+        .filter(line => line.trim() !== '')
+        .join('\n');
       
       // Заменяем плейсхолдеры полями из issueData
       for (const [fieldId, fieldData] of Object.entries(issueData.fields)) {
@@ -2473,7 +2924,7 @@ class JiraNotesExtension {
         result = result.replace(placeholder, value);
       }
       
-      // Заменяем стандартные плейсхолдеры
+      // Заменяем стандартные плейсхолдеры (legacy)
       result = result
         .replace(/{{TASK_ID}}/g, this.currentIssueKey || '')
         .replace(/{{issueKey}}/g, this.currentIssueKey || '')
@@ -2481,6 +2932,9 @@ class JiraNotesExtension {
         .replace(/{{EQUIPMENT}}/g, issueData.fields?.customfield_11122?.value || '')
         .replace(/{{ADDRESS}}/g, issueData.fields?.customfield_11120?.value || '')
         .replace(/{{SUMMARY}}/g, issueData.fields?.summary?.value || '');
+      
+      // Убираем пустые строки, оставшиеся после удаления
+      result = result.replace(/\n{3,}/g, '\n\n'); // Максимум 2 переноса подряд
       
       return result;
     };
@@ -2500,8 +2954,29 @@ class JiraNotesExtension {
       textarea.select();
     }, 100);
 
+    // НОВОЕ: Обновление результата при изменении выбранных полей
+    modal.querySelectorAll('input[type="radio"]').forEach(radio => {
+      radio.addEventListener('change', updateResultPreview);
+    });
+
     // Обновление результата при изменении текста
     textarea.addEventListener('input', updateResultPreview);
+    
+    // НОВОЕ: Обработчики кнопок "Вставить" для умных полей
+    smartFieldInsertBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const placeholder = btn.dataset.placeholder;
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const text = textarea.value;
+        
+        textarea.value = text.substring(0, start) + placeholder + text.substring(end);
+        textarea.focus();
+        textarea.selectionEnd = start + placeholder.length;
+        
+        updateResultPreview();
+      });
+    });
 
     // Закрытие окна
     const closeModal = () => {
