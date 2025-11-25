@@ -415,8 +415,18 @@
   max-height: calc(85vh - 140px);
 }
 
-.jira-copypaste-preview-left {
-  flex: 6;
+.jira-copypaste-preview-presets {
+  flex: 2;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--jpn-color-border-muted);
+  padding-right: 20px;
+  min-width: 200px;
+  overflow: hidden;
+}
+
+.jira-copypaste-preview-center {
+  flex: 5;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -452,7 +462,7 @@
 }
 
 .jira-copypaste-preview-right {
-  flex: 4;
+  flex: 3;
   display: flex;
   flex-direction: column;
   border-left: 1px solid var(--jpn-color-border-muted);
@@ -667,7 +677,16 @@
     overflow-y: auto;
   }
 
-  .jira-copypaste-preview-left {
+  .jira-copypaste-preview-presets {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--jpn-color-border-muted);
+    padding-right: 0;
+    padding-bottom: 20px;
+    max-height: 200px;
+  }
+
+  .jira-copypaste-preview-center {
     min-height: 400px;
   }
 
@@ -760,6 +779,53 @@
   background-color: var(--jpn-color-canvas-inset);
   color: var(--jpn-color-fg-muted);
   border: 1px solid var(--jpn-color-border-muted);
+}
+
+/* Info Field Card (Presets) */
+.jira-info-field-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  border: 1px solid var(--jpn-color-border-default);
+  background: var(--jpn-color-canvas-subtle, var(--jpn-color-canvas-inset));
+  border-left: 3px solid #A855F7;
+}
+
+.jira-info-field-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.jira-info-field-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--jpn-color-fg-muted);
+  text-transform: uppercase;
+}
+
+.jira-info-field-value {
+  font-size: 13px;
+  color: var(--jpn-color-fg-default);
+  word-break: break-word;
+  line-height: 1.4;
+  font-weight: 500;
+}
+
+.jira-info-field-card .jira-field-copy-btn {
+  opacity: 1; /* Always visible for info cards */
+  margin-left: 8px;
+  background: var(--jpn-color-canvas-default);
+  width: 28px;
+  height: 28px;
+}
+
+.jira-info-field-card .jira-field-copy-btn svg {
+  width: 16px;
+  height: 16px;
 }
 
 /* --- Smart Field Selector Styles --- */

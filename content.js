@@ -2987,14 +2987,16 @@ class JiraNotesExtension {
       // Создаём HTML для важных полей
       if (importantFields.length > 0) {
         importantFields.forEach(field => {
-          const shortValue = field.value.length > 40 ? field.value.substring(0, 40) + '...' : field.value;
+          // Не обрезаем значения для важной информации, так как это сводка
           importantFieldsHTML += `
-            <div class="jira-preview-field-pill" draggable="true" data-placeholder="{{${field.id}}}" title="${this.escapeHtml(field.label)}: ${this.escapeHtml(field.value)}" style="border-left: 3px solid #A855F7;">
-              <span class="jira-preview-field-label">${this.escapeHtml(field.label)}</span>
-              <span class="jira-preview-field-value">${this.escapeHtml(shortValue)}</span>
-              <button class="jira-field-copy-btn" data-copy-value="${this.escapeHtml(field.value)}" title="Копировать">
-                <svg viewBox="0 0 16 16" version="1.1" aria-hidden="true"><path fill-rule="evenodd" d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z"></path><path fill-rule="evenodd" d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z"></path></svg>
-              </button>
+            <div class="jira-info-field-card">
+              <div class="jira-info-field-header">
+                <span class="jira-info-field-label">${this.escapeHtml(field.label)}</span>
+                <button class="jira-field-copy-btn" data-copy-value="${this.escapeHtml(field.value)}" title="Копировать">
+                  <svg viewBox="0 0 16 16" version="1.1" aria-hidden="true"><path fill-rule="evenodd" d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z"></path><path fill-rule="evenodd" d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z"></path></svg>
+                </button>
+              </div>
+              <div class="jira-info-field-value">${this.escapeHtml(field.value)}</div>
             </div>
           `;
         });
@@ -3037,7 +3039,16 @@ class JiraNotesExtension {
           <button class="jira-copypaste-preview-close" title="Закрыть">×</button>
         </div>
         <div class="jira-copypaste-preview-body">
-          <div class="jira-copypaste-preview-left">
+          <div class="jira-copypaste-preview-presets">
+            <div class="jira-preview-fields-header">
+              <strong> Важная информация</strong>
+              <small>Пресеты</small>
+            </div>
+            <div class="jira-preview-fields-container">
+              ${importantFieldsHTML}
+            </div>
+          </div>
+          <div class="jira-copypaste-preview-center">
             <div class="jira-copypaste-preview-editor-section">
               <div class="jira-preview-section-label">✏️ Редактирование (с плейсхолдерами)</div>
               <textarea class="jira-copypaste-preview-textarea" spellcheck="false">${content}</textarea>
@@ -3054,7 +3065,6 @@ class JiraNotesExtension {
             </div>
             <div class="jira-preview-fields-container">
               ${smartFieldsHTML}
-              ${importantFieldsHTML}
               ${additionalFieldsHTML}
             </div>
           </div>
@@ -3082,8 +3092,11 @@ class JiraNotesExtension {
     modal.querySelectorAll('.jira-field-copy-btn').forEach(btn => {
       btn.addEventListener('click', async (e) => {
         e.stopPropagation(); // Prevent triggering radio/pill click
-        const value = btn.dataset.copyValue;
+        let value = btn.dataset.copyValue;
         if (value) {
+          // Нормализуем пробелы: заменяем любые последовательности пробельных символов на один пробел
+          value = value.replace(/\s+/g, ' ').trim();
+          
           try {
             await navigator.clipboard.writeText(value);
             
