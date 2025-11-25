@@ -425,22 +425,20 @@
             </div>
             <div class="template-example-wrapper" style="margin-top: 16px;">
               <strong>⚡ Пример шаблона:</strong>
-              <pre class="template-example">Добрый день.
-
+              <pre class="template-example">
+Добрый день.
+                
 Меня зовут {{ФИО}}, я системный администратор.
 
 Я получил запрос на отправку тебе корпоративной персональной техники. В заказе указано: {{ОБОРУДОВАНИЕ}}{{ПЕРИФЕРИЯ}}
 
-Отправка будет осуществляться транспортной компанией СДЭК. Подскажи, пожалуйста, верно ли указан адрес для доставки: {{АДРЕС}}?
-
-Номер телефона для курьера: {{ТЕЛЕФОН}}
-Твой телеграм: {{ТЕЛЕГРАМ}}</pre>
+Отправка будет осуществляться транспортной компанией СДЭК.  Подскажи, пожалуйста, верно ли указан адрес для доставки: {{АДРЕС}} / {{ТЕЛЕФОН}} ?
+              </pre>
             </div>
           </div>
 
           <div class="form-group">
             <label for="copypasteTemplate" class="template-label">
-              <span>Текст шаблона</span>
               <button type="button" class="btn btn-secondary small-btn" id="insertPlaceholderBtn">+ Вставить плейсхолдер</button>
             </label>
             <textarea id="copypasteTemplate" class="form-control template-textarea" rows="15" placeholder="Введите текст шаблона или используйте умные плейсхолдеры выше..."></textarea>
