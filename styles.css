@@ -364,7 +364,7 @@
   border-radius: 12px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
   width: 95%;
-  max-width: 1200px;
+  max-width: 1600px;
   max-height: 85vh;
   display: flex;
   flex-direction: column;
@@ -416,7 +416,7 @@
 }
 
 .jira-copypaste-preview-left {
-  flex: 1;
+  flex: 6;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -452,7 +452,7 @@
 }
 
 .jira-copypaste-preview-right {
-  width: 300px;
+  flex: 4;
   display: flex;
   flex-direction: column;
   border-left: 1px solid var(--jpn-color-border-muted);
@@ -593,7 +593,13 @@
   white-space: pre-wrap;
   word-wrap: break-word;
   overflow-y: auto;
-  cursor: default;
+  resize: none;
+}
+
+.jira-copypaste-preview-result:focus {
+  outline: none;
+  border-color: var(--jpn-color-accent-fg);
+  box-shadow: 0 0 0 3px rgba(9, 105, 218, 0.1);
 }
 
 .jira-copypaste-preview-footer {
@@ -911,5 +917,53 @@
   color: #EF4444;
   background: rgba(239, 68, 68, 0.1);
   border-left-color: #EF4444;
+}
+
+/* Copy Button Styles */
+.jira-field-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  margin-left: 6px;
+  background: transparent;
+  border: 1px solid var(--jpn-color-border-default);
+  border-radius: 4px;
+  color: var(--jpn-color-fg-muted);
+  cursor: pointer;
+  opacity: 0.6;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.jira-field-copy-btn:hover {
+  opacity: 1;
+  background: var(--jpn-color-canvas-inset);
+  color: var(--jpn-color-accent-fg);
+  border-color: var(--jpn-color-accent-fg);
+}
+
+.jira-field-copy-btn svg {
+  width: 12px;
+  height: 12px;
+  fill: currentColor;
+}
+
+.jira-preview-field-pill .jira-field-copy-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: var(--jpn-color-canvas-default);
+  opacity: 0;
+}
+
+.jira-preview-field-pill:hover .jira-field-copy-btn {
+  opacity: 1;
+}
+
+.jira-smart-field-value .jira-field-copy-btn {
+  margin-left: auto; /* Push to right if flex container allows, or just margin */
 }
 

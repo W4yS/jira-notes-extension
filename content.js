@@ -1731,6 +1731,39 @@ class JiraNotesExtension {
           fieldValue = fieldValue
             .replace(/Редактировать поле «.*?»|Добавить.*?, edit|Изменить.*?, edit|Отредактировать поле.*?edit|Закрепить вверху.*?$|Открепить сверху.*?$|Закрепленные поля видны только вам\.?/g, '')
             .trim();
+
+          // === СПЕЦИФИЧНАЯ ОЧИСТКА ДЛЯ ОБОРУДОВАНИЯ И ПЕРИФЕРИИ ===
+          if (fieldId === 'customfield_11123') { // Периферия
+             // Пример: "Мышка / Mouse; Монитор (Стандарт) / Monitor (Standard)" -> "Мышка; Монитор"
+             // Пытаемся определить разделитель (обычно это запятая или точка с запятой в Jira)
+             // Если разделителя нет, но есть несколько элементов, это сложнее, но будем надеяться на наличие разделителей в тексте
+             const separator = fieldValue.includes(';') ? ';' : (fieldValue.includes(',') ? ',' : null);
+             
+             if (separator) {
+               fieldValue = fieldValue.split(separator)
+                 .map(item => {
+                   // Берем часть до слэша и убираем скобки (...)
+                   return item.split('/')[0].replace(/\([^)]*\)/g, '').trim();
+                 })
+                 .filter(Boolean)
+                 .join('; ');
+             } else {
+               // Если разделителя нет, просто чистим от английской части и скобок
+               fieldValue = fieldValue.split('/')[0].replace(/\([^)]*\)/g, '').trim();
+             }
+          }
+           
+          if (fieldId === 'customfield_11122') { // Оборудование
+             // Пример: "Ноутбук средней мощности / Medium per" -> "Ноутбук"
+             // Сначала берем русскую часть до слэша и убираем скобки
+             let clean = fieldValue.split('/')[0].replace(/\([^)]*\)/g, '').trim();
+             
+             // Если это ноутбук - оставляем просто "Ноутбук"
+             if (clean.toLowerCase().includes('ноутбук')) {
+               clean = 'Ноутбук';
+             }
+             fieldValue = clean;
+          }
         }
         
         // === ВАЛИДАЦИЯ И СОХРАНЕНИЕ ===
@@ -2725,6 +2758,22 @@ class JiraNotesExtension {
       // 3. Заполняем шаблон данными
       let filledTemplate = copypasteTemplate;
 
+      // === УМНАЯ ЛОГИКА: Удаление вопроса про мышку/коврик, если они уже есть ===
+      const peripheralsVal = issueData.fields.customfield_11123?.value || '';
+      if (peripheralsVal) {
+        const pLower = peripheralsVal.toLowerCase();
+        // Проверяем наличие мышки или коврика в периферии
+        if (pLower.includes('мышка') || pLower.includes('коврик') || pLower.includes('mouse') || pLower.includes('pad')) {
+          const phraseToRemove = "Не требуется ли что-то еще помимо указанного в списке, например мышка или коврик?";
+          // Regex для удаления (case-insensitive, гибкие пробелы)
+          const escapedPhrase = phraseToRemove.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+          const regex = new RegExp(escapedPhrase, 'gi');
+          
+          // Удаляем фразу
+          filledTemplate = filledTemplate.replace(regex, '');
+        }
+      }
+
       // Заменяем плейсхолдеры полями из issueData
       for (const [fieldId, fieldData] of Object.entries(issueData.fields)) {
         const placeholder = new RegExp(`{{${fieldId}}}`, 'g');
@@ -2810,6 +2859,9 @@ class JiraNotesExtension {
                 <div class="jira-smart-field-content">
                   <div class="jira-smart-field-value">
                     ${warningIcon} ${this.escapeHtml(variant.value)} ${recommendedBadge}
+                    <button class="jira-field-copy-btn" data-copy-value="${this.escapeHtml(variant.value)}" title="Копировать">
+                      <svg viewBox="0 0 16 16" version="1.1" aria-hidden="true"><path fill-rule="evenodd" d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z"></path><path fill-rule="evenodd" d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z"></path></svg>
+                    </button>
                   </div>
                   <div class="jira-smart-field-source">${variant.source}</div>
                   ${variant.warning ? `<div class="jira-smart-field-warning">${variant.warning}</div>` : ''} 
@@ -2827,6 +2879,7 @@ class JiraNotesExtension {
 
     // Создаём HTML для дополнительных полей (как раньше)
     let additionalFieldsHTML = '<p class="jira-preview-no-fields">Нет данных</p>';
+    let importantFieldsHTML = '';
     
     if (issueData && issueData.fields) {
       // Список полей, которые НИКОГДА не нужны (фильтруем полностью)
@@ -2839,6 +2892,40 @@ class JiraNotesExtension {
         'customfield_11062', 'customfield_11087', 'customfield_11121',
         'customfield_11122', 'customfield_11123', 'summary'
       ];
+
+      // Паттерны для исключения по названию
+      const excludedLabelPatterns = [
+        'Приоритет', 'Priority',
+        'Наблюдатели', 'Watchers',
+        'Телеграм HR', 'Recruiter\'s Telegrams',
+        'Телеграм руководителя', 'Telegram handle of the employee',
+        'Страна', 'Country',
+        'Наличие аппрува', 'Approval', 'Аппрув',
+        'Город', 'City',
+        'Гео локал', 'ГЕО', 'Geo',
+        'Задача из отдела КДП', 'ЗадачА',
+        'Ping Date', 'Ping',
+        'Tags', 'Метки',
+        'Channel of communication', 'Channel',
+        'Схема безопасности', 'Security',
+        'От кого задача', 'Автор', 'Author', 'Reporter',
+        'Соисполнитель', 'Исполнитель', 'Assignee'
+      ];
+
+      // Паттерны для важных полей (пресеты)
+      const importantFieldPatterns = [
+        { id: 'summary', label: 'Название заявки' },
+        { id: 'customfield_11062', label: 'Телеграм сотрудника' },
+        { label: 'Должность' },
+        { label: 'Position' },
+        { label: 'Проект' },
+        { label: 'Project' },
+        { label: 'Отдел' },
+        { label: 'Подотдел' },
+        { label: 'Subdepartment' },
+        { id: 'customfield_11120', label: 'Офис или Адрес' },
+        { id: 'customfield_11121', label: 'Номер телефона для курьера' }
+      ];
       
       const mainFields = [
         'customfield_11009', 'customfield_10229', 'customfield_11118'
@@ -2849,9 +2936,40 @@ class JiraNotesExtension {
         '➕ Дополнительно': []
       };
 
-      // Категоризация полей
+      const importantFields = [];
+      const processedFieldIds = new Set();
+
+      // 1. Сначала ищем важные поля
       for (const [fieldId, fieldData] of Object.entries(issueData.fields)) {
+        if (!fieldData.value) continue;
+
+        // Проверяем на соответствие паттернам важных полей
+        const isImportant = importantFieldPatterns.some(pattern => {
+          if (pattern.id && pattern.id === fieldId) return true;
+          if (pattern.label && fieldData.label.toLowerCase().includes(pattern.label.toLowerCase())) return true;
+          return false;
+        });
+
+        if (isImportant) {
+          importantFields.push({
+            id: fieldId,
+            label: fieldData.label,
+            value: fieldData.value
+          });
+          processedFieldIds.add(fieldId);
+        }
+      }
+
+      // 2. Затем распределяем остальные поля
+      for (const [fieldId, fieldData] of Object.entries(issueData.fields)) {
+        if (processedFieldIds.has(fieldId)) continue; // Уже добавлено в важные
         if (excludedFields.includes(fieldId) || !fieldData.value) continue;
+        
+        // Проверка на исключение по названию
+        const isExcludedByName = excludedLabelPatterns.some(pattern => 
+          fieldData.label.toLowerCase().includes(pattern.toLowerCase())
+        );
+        if (isExcludedByName) continue;
         
         let category = '➕ Дополнительно';
         
@@ -2866,7 +2984,23 @@ class JiraNotesExtension {
         });
       }
 
-      // Создаём HTML
+      // Создаём HTML для важных полей
+      if (importantFields.length > 0) {
+        importantFields.forEach(field => {
+          const shortValue = field.value.length > 40 ? field.value.substring(0, 40) + '...' : field.value;
+          importantFieldsHTML += `
+            <div class="jira-preview-field-pill" draggable="true" data-placeholder="{{${field.id}}}" title="${this.escapeHtml(field.label)}: ${this.escapeHtml(field.value)}" style="border-left: 3px solid #A855F7;">
+              <span class="jira-preview-field-label">${this.escapeHtml(field.label)}</span>
+              <span class="jira-preview-field-value">${this.escapeHtml(shortValue)}</span>
+              <button class="jira-field-copy-btn" data-copy-value="${this.escapeHtml(field.value)}" title="Копировать">
+                <svg viewBox="0 0 16 16" version="1.1" aria-hidden="true"><path fill-rule="evenodd" d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z"></path><path fill-rule="evenodd" d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z"></path></svg>
+              </button>
+            </div>
+          `;
+        });
+      }
+
+      // Создаём HTML для остальных групп
       let groupsHTML = '';
       groupsHTML += '<div class="jira-preview-field-group-header">━━━ Все остальные поля ━━━</div>';
       
@@ -2880,6 +3014,9 @@ class JiraNotesExtension {
               <div class="jira-preview-field-pill" draggable="true" data-placeholder="{{${field.id}}}" title="${this.escapeHtml(field.label)}: ${this.escapeHtml(field.value)}">
                 <span class="jira-preview-field-label">${this.escapeHtml(field.label)}</span>
                 <span class="jira-preview-field-value">${this.escapeHtml(shortValue)}</span>
+                <button class="jira-field-copy-btn" data-copy-value="${this.escapeHtml(field.value)}" title="Копировать">
+                  <svg viewBox="0 0 16 16" version="1.1" aria-hidden="true"><path fill-rule="evenodd" d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z"></path><path fill-rule="evenodd" d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z"></path></svg>
+                </button>
               </div>
             `;
           });
@@ -2907,7 +3044,7 @@ class JiraNotesExtension {
             </div>
             <div class="jira-copypaste-preview-result-section">
               <div class="jira-preview-section-label">👁️ Результат (что будет скопировано)</div>
-              <div class="jira-copypaste-preview-result"></div>
+              <textarea class="jira-copypaste-preview-result" spellcheck="false"></textarea>
             </div>
           </div>
           <div class="jira-copypaste-preview-right">
@@ -2917,6 +3054,7 @@ class JiraNotesExtension {
             </div>
             <div class="jira-preview-fields-container">
               ${smartFieldsHTML}
+              ${importantFieldsHTML}
               ${additionalFieldsHTML}
             </div>
           </div>
@@ -2936,9 +3074,33 @@ class JiraNotesExtension {
     const copyBtn = modal.querySelector('.jira-copypaste-preview-copy');
     const backdrop = modal.querySelector('.jira-copypaste-preview-backdrop');
     const textarea = modal.querySelector('.jira-copypaste-preview-textarea');
-    const resultDiv = modal.querySelector('.jira-copypaste-preview-result');
+    const resultTextarea = modal.querySelector('.jira-copypaste-preview-result');
     const fieldPills = modal.querySelectorAll('.jira-preview-field-pill');
     const smartFieldInsertBtns = modal.querySelectorAll('.jira-smart-field-insert-btn');
+
+    // НОВОЕ: Обработчики кнопок копирования полей
+    modal.querySelectorAll('.jira-field-copy-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation(); // Prevent triggering radio/pill click
+        const value = btn.dataset.copyValue;
+        if (value) {
+          try {
+            await navigator.clipboard.writeText(value);
+            
+            // Visual feedback
+            const originalHTML = btn.innerHTML;
+            btn.innerHTML = '<span style="font-size: 14px; color: #22C55E;">✓</span>';
+            
+            setTimeout(() => {
+              btn.innerHTML = originalHTML;
+            }, 1000);
+            
+          } catch (err) {
+            console.error('Failed to copy:', err);
+          }
+        }
+      });
+    });
 
     // НОВОЕ: Функция получения выбранных значений из умных полей
     const getSmartFieldValues = () => {
@@ -3015,7 +3177,7 @@ class JiraNotesExtension {
     // Обновление панели результата
     const updateResultPreview = () => {
       const replacedText = replacePlaceholders(textarea.value);
-      resultDiv.textContent = replacedText;
+      resultTextarea.value = replacedText;
     };
 
     // Первоначальное обновление результата
@@ -3063,7 +3225,7 @@ class JiraNotesExtension {
 
     // Копирование - копируем ЗАМЕНЕННЫЙ текст
     copyBtn.addEventListener('click', async () => {
-      const textToCopy = replacePlaceholders(textarea.value);
+      const textToCopy = resultTextarea.value;
       try {
         await navigator.clipboard.writeText(textToCopy);
         this.showCopypasteNotification('✅ Скопировано в буфер обмена!', 'success');
