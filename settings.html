@@ -10,23 +10,25 @@
 
   <div class="container">
     <header class="page-header">
-      <h1>Настройки</h1>
-      <p class="subtitle">Управление режимом работы, статусами и данными расширения Jira Notes.</p>
+      <div>
+        <h1>Jira Notes</h1>
+        <p class="subtitle">Управление режимом работы, статусами и данными расширения.</p>
+      </div>
     </header>
 
     <div class="nav-tabs">
-      <button class="nav-tab active" data-tab="sync">Синхронизация</button>
+      <button class="nav-tab active" data-tab="sync">Общие</button>
       <button class="nav-tab" data-tab="statuses">Статусы</button>
       <button class="nav-tab" data-tab="fields">Поля задачи</button>
       <button class="nav-tab" data-tab="issuedata">Данные</button>
       <button class="nav-tab" data-tab="templates">Шаблоны</button>
     </div>
 
-    <!-- Tab: Синхронизация -->
+    <!-- Tab: Общие (бывший Синхронизация) -->
     <div class="tab-content active" id="syncTab">
       <div class="box">
         <div class="box-header">
-          <h2>Режим работы</h2>
+          <h2>Основные настройки</h2>
         </div>
         <div class="box-body">
           <div class="form-checkbox">
@@ -36,21 +38,37 @@
               <div class="note">Включает извлечение и отображение кодов офисов (Гоголь, Пушкин и т.д.) на карточках Jira.</div>
             </label>
           </div>
-        </div>
-        <div class="box-footer" style="display: flex; gap: 16px;">
-          <div class="mode-button" data-mode="personal">
-            <input type="radio" name="syncMode" id="modePersonal" value="personal" checked>
-            <label for="modePersonal">
-              <strong>Личный режим</strong>
-              <div class="note">Все заметки и статусы хранятся только в вашем браузере.</div>
+          
+          <div class="form-checkbox" style="margin-top: 12px;">
+            <input type="checkbox" id="debugModeToggle">
+            <label for="debugModeToggle">
+              <div>Режим отладки</div>
+              <div class="note">Включает подробное логирование в консоль (требуется перезагрузка страницы Jira).</div>
             </label>
           </div>
-          <div class="mode-button" data-mode="team">
-            <input type="radio" name="syncMode" id="modeTeam" value="team">
-            <label for="modeTeam">
-              <strong>Командный режим</strong>
-              <div class="note">Синхронизация заметок и статусов с командой в реальном времени.</div>
-            </label>
+        </div>
+      </div>
+
+      <div class="box">
+        <div class="box-header">
+          <h2>Режим работы</h2>
+        </div>
+        <div class="box-body">
+          <div style="display: flex; gap: 16px;">
+            <div class="mode-button" data-mode="personal">
+              <input type="radio" name="syncMode" id="modePersonal" value="personal" checked>
+              <label for="modePersonal">
+                <strong>👤 Личный режим</strong>
+                <div class="note">Все заметки и статусы хранятся только в вашем браузере.</div>
+              </label>
+            </div>
+            <div class="mode-button" data-mode="team">
+              <input type="radio" name="syncMode" id="modeTeam" value="team">
+              <label for="modeTeam">
+                <strong>👥 Командный режим</strong>
+                <div class="note">Синхронизация заметок и статусов с командой в реальном времени.</div>
+              </label>
+            </div>
           </div>
         </div>
       </div>
@@ -84,22 +102,12 @@
               <p class="note">Этот цвет будет помечать ваши изменения для других.</p>
             </div>
           </div>
-          <div class="box-footer" style="display: flex; justify-content: space-between; align-items: center;">
-            <div>
-              <button class="btn btn-primary" id="connectBtn">Подключиться</button>
-              <button class="btn btn-secondary" id="testBtn">Тест</button>
-            </div>
-            <div id="statusIndicator" class="status-indicator offline" style="display: none;">
+          <div class="box-footer">
+            <div id="statusIndicator" class="status-indicator offline" style="display: none; margin-right: auto;">
               <span id="statusText">Отключено</span>
             </div>
-          </div>
-        </div>
-        <div class="box" id="teamMembersBox" style="display: none;">
-          <div class="box-header">
-            <h3>Участники команды</h3>
-          </div>
-          <div class="box-body" id="membersList">
-            <!-- Team members will be injected by JS -->
+            <button class="btn btn-secondary" id="testBtn">Тест</button>
+            <button class="btn btn-primary" id="connectBtn">Подключиться</button>
           </div>
         </div>
       </div>
@@ -118,7 +126,7 @@
               <!-- Statuses will be injected by JS -->
             </div>
           </div>
-          <div class="box-footer" style="display: flex; justify-content: flex-end; gap: 8px;">
+          <div class="box-footer">
              <button class="btn btn-secondary" id="resetDefaultsBtn">Сбросить к стандартным</button>
              <button class="btn btn-danger" id="deleteAllStatusesBtn">Удалить все</button>
           </div>
@@ -142,14 +150,14 @@
             </div>
             <div class="form-group">
               <label>Предпросмотр</label>
-              <div id="statusPreview" class="status-item-preview">
+              <div id="statusPreview" class="status-item-preview" style="padding: 12px; border: 1px solid var(--color-border-muted); border-radius: 6px;">
                 <span id="previewEmoji" style="font-size: 16px;"></span>
                 <div id="previewDot" class="status-dot"></div>
                 <span id="previewName"></span>
               </div>
             </div>
           </div>
-          <div class="box-footer" style="text-align: right;">
+          <div class="box-footer">
             <button class="btn btn-primary" id="addStatusBtn">Добавить статус</button>
           </div>
         </div>
@@ -164,7 +172,7 @@
         </div>
         <div class="box-body">
           <p class="note" style="margin-bottom: 20px;">
-            Настройте приоритет извлечения данных для ключевых полей задачи. Расширение будет использовать первое доступное поле из списка приоритетов.
+            Настройте приоритет извлечения данных для ключевых полей задачи. Перетаскивайте элементы, чтобы изменить порядок. Расширение будет использовать первое доступное поле из списка.
           </p>
 
           <!-- ФИО -->
@@ -328,7 +336,7 @@
             </div>
           </div>
         </div>
-        <div class="box-footer" style="display: flex; justify-content: flex-end; gap: 8px;">
+        <div class="box-footer">
           <button class="btn btn-secondary" id="resetFieldPrioritiesBtn">Сбросить к стандартным</button>
           <button class="btn btn-primary" id="saveFieldPrioritiesBtn">Сохранить приоритеты</button>
         </div>
@@ -359,7 +367,7 @@
             </table>
           </div>
         </div>
-        <div class="box-footer" style="display: flex; justify-content: flex-end; gap: 8px;">
+        <div class="box-footer">
           <button class="btn btn-secondary" id="exportAllIssuesBtn">Экспорт всех</button>
           <button class="btn btn-danger" id="deleteAllIssuesBtn">Удалить все</button>
         </div>
@@ -415,7 +423,7 @@
                 <span class="placeholder-desc">- Описание заявки</span>
               </div>
             </div>
-            <div class="template-example-wrapper">
+            <div class="template-example-wrapper" style="margin-top: 16px;">
               <strong>⚡ Пример шаблона:</strong>
               <pre class="template-example">Добрый день.
 
@@ -439,26 +447,20 @@
             <p class="note template-note">💡 При копировании вы сможете выбрать конкретное поле для каждого плейсхолдера. Строки с пустыми значениями будут автоматически удалены.</p>
           </div>
         </div>
-        <div class="box-footer" style="display: flex; justify-content: space-between; align-items: center;">
-          <button class="btn btn-primary" id="saveTemplateBtn">💾 Сохранить шаблон</button>
-          <div style="display: flex; gap: 8px;">
+        <div class="box-footer">
+          <div style="display: flex; gap: 8px; margin-right: auto;">
             <button class="btn btn-secondary" id="loadExampleBtn">📄 Загрузить пример</button>
             <button class="btn btn-secondary" id="clearTemplateBtn">🗑️ Очистить</button>
           </div>
-        </div>
-      </div>
-
-      <div class="box" id="templatePreviewBox" style="display: none; margin-top: 16px;">
-        <div class="box-header">
-          <h3>👁️ Предпросмотр шаблона</h3>
-        </div>
-        <div class="box-body">
-          <pre id="templatePreviewContent" class="template-preview" style="background: #f6f8fa; padding: 16px; border-radius: 6px; border: 1px solid #d0d7de; font-family: 'Consolas', monospace; font-size: 13px; line-height: 1.6; overflow-x: auto;"></pre>
+          <button class="btn btn-primary" id="saveTemplateBtn">💾 Сохранить шаблон</button>
         </div>
       </div>
     </div>
 
   </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast" class="toast"></div>
 
   <script src="firebase-app-compat.js"></script>
   <script src="firebase-database-compat.js"></script>

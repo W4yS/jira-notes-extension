@@ -927,6 +927,10 @@ class JiraNotesExtension {
         return;
       }
       this.log('🎨 Creating panel for', targetIssueKey);
+      
+      // НОВОЕ: Обновляем маппинг адресов перед экстракцией (чтобы подхватить изменения в code.json)
+      await this.loadAddressMapping();
+      
       this.log('📊 Pre-extracting issue data for copypaste...');
       const extractedData = await this.extractAndSaveAllIssueData(targetIssueKey);
       if (this.currentIssueKey !== targetIssueKey) {
@@ -1248,66 +1252,105 @@ class JiraNotesExtension {
     }
   }
   
-  // Сворачивание/разворачивание панели
+  // Сворачивание/разворачивание панели (ОПТИМИЗИРОВАННАЯ ВЕРСИЯ с transform)
   async togglePanelCollapse(panel) {
     const minimizeBtn = panel.querySelector('.jira-notes-minimize');
     const isCollapsed = panel.classList.contains('collapsed');
     
+    // Функция для одноразового слушателя окончания анимации
+    const onTransitionEnd = (callback) => {
+      const handler = (e) => {
+        if (e.propertyName === 'transform') {
+          panel.removeEventListener('transitionend', handler);
+          callback();
+        }
+      };
+      panel.addEventListener('transitionend', handler);
+      // Fallback на случай если событие не сработает (например, вкладка не активна)
+      setTimeout(() => {
+        panel.removeEventListener('transitionend', handler);
+        callback();
+      }, 450);
+    };
+
     if (isCollapsed) {
-      // Разворачиваем - сначала меняем позицию, потом показываем контент
+      // === РАЗВОРАЧИВАЕМ ===
       
-      // Восстанавливаем позицию
+      // 1. Определяем целевую позицию (восстанавливаем сохраненную)
+      const currentTop = parseFloat(panel.style.top) || panel.getBoundingClientRect().top;
+      let targetTop;
+      
       const savedTop = panel.dataset.savedTop;
       if (savedTop && savedTop !== '' && savedTop !== 'undefined') {
-        panel.style.top = savedTop;
-        panel.style.bottom = 'auto';
+        targetTop = parseFloat(savedTop);
         delete panel.dataset.savedTop;
       } else {
-        panel.style.bottom = 'auto';
+        // Если не сохранена, просто поднимаем на разумную высоту (например, 100px от верха)
+        targetTop = 100;
       }
       
-      // Двойной RAF для гарантированного применения стилей
-      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      // 2. Вычисляем дельту для анимации
+      const deltaY = targetTop - currentTop;
       
-      // Теперь показываем контент
-      panel.classList.remove('collapsed');
+      // 3. Запускаем анимацию через transform
+      panel.style.transform = `translateY(${deltaY}px)`;
+      panel.classList.remove('collapsed'); // Показываем контент
       
       minimizeBtn.textContent = '—';
       minimizeBtn.title = 'Свернуть';
+      
+      // 4. После анимации фиксируем новую позицию top и убираем transform
+      onTransitionEnd(() => {
+        panel.style.transition = 'none'; // Отключаем анимацию для мгновенной подмены
+        panel.style.transform = '';
+        panel.style.top = targetTop + 'px';
+        panel.style.bottom = 'auto';
+        
+        // Force reflow
+        panel.offsetHeight;
+        
+        panel.style.transition = ''; // Включаем анимацию обратно
+      });
+      
       console.log('📖 Panel expanded');
-      
-      try {
-        await chrome.storage.local.set({ 'panel_collapsed': false });
-      } catch (error) {
-        console.error('Error saving collapse state:', error);
-      }
+      try { await chrome.storage.local.set({ 'panel_collapsed': false }); } catch (e) {}
+
     } else {
-      // Сворачиваем - сначала скрываем контент, потом двигаем вниз
+      // === СВОРАЧИВАЕМ ===
       
-      // Сохраняем позицию
-      if (panel.style.top && panel.style.top !== 'auto') {
-        panel.dataset.savedTop = panel.style.top;
-      }
+      // 1. Сохраняем текущую позицию
+      const rect = panel.getBoundingClientRect();
+      const currentTop = rect.top;
+      panel.dataset.savedTop = panel.style.top && panel.style.top !== 'auto' ? panel.style.top : currentTop + 'px';
       
-      // Сначала скрываем контент
-      panel.classList.add('collapsed');
+      // 2. Вычисляем целевую позицию (внизу экрана)
+      const headerHeight = panel.querySelector('.jira-notes-header').offsetHeight || 40;
+      const targetTop = window.innerHeight - headerHeight - 20;
       
-      // Двойной RAF для гарантированного применения
-      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      // 3. Вычисляем дельту
+      const deltaY = targetTop - currentTop;
       
-      // Теперь перемещаем вниз
-      panel.style.top = 'auto';
-      panel.style.bottom = '20px';
+      // 4. Запускаем анимацию через transform
+      panel.style.transform = `translateY(${deltaY}px)`;
+      panel.classList.add('collapsed'); // Скрываем контент
       
       minimizeBtn.textContent = '□';
       minimizeBtn.title = 'Развернуть';
-      console.log('📕 Panel collapsed');
       
-      try {
-        await chrome.storage.local.set({ 'panel_collapsed': true });
-      } catch (error) {
-        console.error('Error saving collapse state:', error);
-      }
+      // 5. После анимации фиксируем новую позицию top и убираем transform
+      onTransitionEnd(() => {
+        panel.style.transition = 'none';
+        panel.style.transform = '';
+        panel.style.top = targetTop + 'px';
+        panel.style.bottom = 'auto';
+        
+        panel.offsetHeight; // Force reflow
+        
+        panel.style.transition = '';
+      });
+      
+      console.log('📕 Panel collapsed');
+      try { await chrome.storage.local.set({ 'panel_collapsed': true }); } catch (e) {}
     }
   }
   
@@ -1506,7 +1549,9 @@ class JiraNotesExtension {
           }, delay);
           return null;
         } else {
-          console.warn(`[WAIT_MODAL_TIMEOUT] ${targetIssueKey} exceeded readiness wait (${waited}ms). Proceeding with attempts.`);
+          console.warn(`[WAIT_MODAL_TIMEOUT] ${targetIssueKey} exceeded readiness wait (${waited}ms). Proceeding with FORCE extraction.`);
+          // Force extraction ignoring readiness check
+          return await this._doExtractionReal(targetIssueKey, true);
         }
       }
       if (!data) {
@@ -1546,7 +1591,7 @@ class JiraNotesExtension {
   }
 
   // Реальная функция извлечения (без повторных попыток)
-  async _doExtractionReal(targetIssueKey) {
+  async _doExtractionReal(targetIssueKey, force = false) {
     const issueData = {
       issueKey: targetIssueKey,
       extractedAt: new Date().toISOString(),
@@ -1563,7 +1608,9 @@ class JiraNotesExtension {
       };
       
       // 2. Название заявки (Summary)
-      const summaryElement = document.querySelector('[data-testid="issue.views.issue-base.foundation.summary.heading"]');
+      const summaryElement = document.querySelector('[data-testid="issue.views.issue-base.foundation.summary.heading"]') || 
+                             document.querySelector('h1[data-testid*="summary.heading"]');
+      
       if (summaryElement) {
         const summaryText = summaryElement.textContent.trim();
         if (summaryText) {
@@ -1577,19 +1624,24 @@ class JiraNotesExtension {
       
       // === ДИНАМИЧЕСКОЕ ИЗВЛЕЧЕНИЕ ВСЕХ КАСТОМНЫХ ПОЛЕЙ ===
       
-      // ОПТИМИЗАЦИЯ: Находим все элементы заранее, а не в forEach
-      const allElements = document.querySelectorAll('[data-testid*="customfield_"]');
-      // ПРОВЕРКА ГОТОВНОСТИ МОДАЛА: если нет summary или слишком мало элементов, считаем что модал ещё грузится
-      if (!summaryElement || allElements.length < 3) {
-        return { _notReady: true, elementCount: allElements.length };
+      // ОПТИМИЗАЦИЯ: Находим все элементы заранее
+      const customFieldElements = document.querySelectorAll('[data-testid*="customfield_"]');
+      const systemFieldElements = document.querySelectorAll('[data-testid^="issue.views.field."]'); // Системные поля
+      
+      const totalElements = customFieldElements.length + systemFieldElements.length;
+
+      // ПРОВЕРКА ГОТОВНОСТИ МОДАЛА: если нет summary или слишком мало элементов (системных + кастомных), считаем что модал ещё грузится
+      if (!force && (!summaryElement || totalElements < 2)) {
+        return { _notReady: true, elementCount: totalElements };
       }
+      
       const customFields = new Map();
       
-      console.log(`🔍 Found ${allElements.length} elements with customfield in testid`);
+      console.log(`🔍 Found ${customFieldElements.length} custom fields and ${systemFieldElements.length} system fields`);
       
       // Предварительно собираем все нужные селекторы для batch-запроса
       const fieldIds = new Set();
-      allElements.forEach(element => {
+      customFieldElements.forEach(element => {
         const testId = element.getAttribute('data-testid');
         const match = testId.match(/customfield_(\d+)/);
         if (match) {
@@ -1712,13 +1764,14 @@ class JiraNotesExtension {
       }
 
       // Проверяем что извлечены осмысленные данные
-      if (customFields.size === 0) {
+      const totalFields = Object.keys(issueData.fields).length;
+      if (totalFields === 0) {
         console.error(`❌ No fields extracted for ${targetIssueKey}! Modal may not be fully loaded.`);
         return null; // Сигнал для повторной попытки
       }
       
-      if (customFields.size < 3) {
-        console.warn(`⚠️ Only ${customFields.size} fields extracted, data may be incomplete`);
+      if (totalFields < 3) {
+        console.warn(`⚠️ Only ${totalFields} fields extracted, data may be incomplete`);
       }
 
       // Интегрированное извлечение адреса(ов) и офиса (за один проход)
@@ -1756,6 +1809,7 @@ class JiraNotesExtension {
           console.log(`💾 Saving office code for ${targetIssueKey}: "${officeCode}" (attempt ${attemptIdx + 1})`);
         } else {
           // НЕ сохраняем и НЕ кладём в codeCache, чтобы renderer показывал адрес (если есть) или ничего
+
           console.log(`⏳ Provisional office code "${officeCode}" for ${targetIssueKey} (attempt ${attemptIdx + 1}) - will retry before saving`);
         }
       } else {
@@ -1811,19 +1865,26 @@ class JiraNotesExtension {
     // Ищем поле с типом оборудования (customfield_11122)
     const equipmentField = fields.customfield_11122;
     
+    // Если поля нет или значения нет - не показываем иконку
     if (!equipmentField || !equipmentField.value) {
-      return 'other'; // Если нет поля - это "другое"
+      return null;
     }
     
     const value = equipmentField.value.toLowerCase();
     
+    // Игнорируем плейсхолдеры "Добавьте вариант" и т.д.
+    const ignoreValues = ['добавьте вариант', 'выберите', 'none', 'нет'];
+    if (ignoreValues.some(v => value.includes(v))) {
+      return null;
+    }
+    
     // Проверяем на Apple/Mac
-    if (value.includes('macbook') || value.includes('mac') || value.includes('apple')) {
+    if (value.includes('macbook') || value.includes('mac') || value.includes('apple') || value.includes('macos')) {
       return 'apple';
     }
     
     // Проверяем на Windows ноутбуки
-    if (value.includes('windows') || value.includes('ноутбук') || value.includes('laptop')) {
+    if (value.includes('windows') || value.includes('ноутбук') || value.includes('laptop') || value.includes('win')) {
       return 'windows';
     }
     
@@ -2387,10 +2448,16 @@ class JiraNotesExtension {
         console.log('Issue changed:', lastIssueKey, '->', newIssueKey);
         lastIssueKey = newIssueKey;
         this.currentIssueKey = newIssueKey;
-        // Сбрасываем предыдущие данные новой задачи перед экстракцией
-        this.invalidateIssueCaches(newIssueKey);
+        
+        // УБРАНО: Не сбрасываем кеш, чтобы не было мигания (показываем старые данные пока грузятся новые)
+        // this.invalidateIssueCaches(newIssueKey);
+        
         this.extractionAttempts[newIssueKey] = 0; // обнуляем счётчик попыток
-        this.pendingIssues[newIssueKey] = true; // ставим флаг ожидания
+        
+        // Ставим флаг ожидания только если данных вообще нет в кеше
+        if (!this.codeCache[newIssueKey] && !this.addressCache[newIssueKey]) {
+          this.pendingIssues[newIssueKey] = true;
+        }
         
         // Обновляем существующую панель
         const panel = document.querySelector('.jira-notes-panel');
@@ -2404,7 +2471,10 @@ class JiraNotesExtension {
         
         // КРИТИЧНО: Извлекаем данные новой задачи
         console.log('📊 Extracting data for issue change:', newIssueKey);
-        this.extractAndSaveAllIssueData(newIssueKey).catch(err => {
+        // Сначала обновляем маппинг, потом экстрактим
+        this.loadAddressMapping().then(() => {
+          return this.extractAndSaveAllIssueData(newIssueKey);
+        }).catch(err => {
           console.error(`Failed to extract data for ${newIssueKey}:`, err);
         });
         
@@ -2578,7 +2648,9 @@ class JiraNotesExtension {
             // НОВОЕ: Извлекаем данные новой задачи для копипасты (асинхронно, не блокируем UI)
             console.log('📊 Extracting data for new issue:', newIssueKey);
             // КРИТИЧНО: Передаём issueKey явно чтобы избежать race condition
-            this.extractAndSaveAllIssueData(newIssueKey).catch(err => {
+            this.loadAddressMapping().then(() => {
+              return this.extractAndSaveAllIssueData(newIssueKey);
+            }).catch(err => {
               console.error(`Failed to extract data for ${newIssueKey}:`, err);
             });
           } else {
@@ -2708,14 +2780,14 @@ class JiraNotesExtension {
     let smartFieldsHTML = '';
     
     if (Object.keys(smartFields).length > 0) {
-      smartFieldsHTML = '<div class="jira-smart-fields-section">';
+      smartFieldsHTML = '<div class="jira-smart-fields-section">'; 
       smartFieldsHTML += '<div class="jira-preview-field-group-header">━━━ Основные данные ━━━</div>';
       
       for (const [category, variants] of Object.entries(smartFields)) {
         const config = this.smartFieldConfig[category];
         if (!variants || variants.length === 0) continue;
         
-        smartFieldsHTML += `
+        smartFieldsHTML += ` 
           <div class="jira-smart-field-group" data-category="${category}">
             <div class="jira-smart-field-header">
               <strong>${config.label}</strong>
@@ -2740,7 +2812,7 @@ class JiraNotesExtension {
                     ${warningIcon} ${this.escapeHtml(variant.value)} ${recommendedBadge}
                   </div>
                   <div class="jira-smart-field-source">${variant.source}</div>
-                  ${variant.warning ? `<div class="jira-smart-field-warning">${variant.warning}</div>` : ''}
+                  ${variant.warning ? `<div class="jira-smart-field-warning">${variant.warning}</div>` : ''} 
                 </div>
               </label>
             </div>
@@ -2912,6 +2984,7 @@ class JiraNotesExtension {
           });
           // Убираем лишние двойные пробелы, ведущие/концевые пробелы
           processed = processed.replace(/\s{2,}/g, ' ').replace(/^\s+$/,'');
+
           return processed;
         })
         .filter(line => line.trim() !== '')
@@ -2932,8 +3005,8 @@ class JiraNotesExtension {
         .replace(/{{EQUIPMENT}}/g, issueData.fields?.customfield_11122?.value || '')
         .replace(/{{ADDRESS}}/g, issueData.fields?.customfield_11120?.value || '')
         .replace(/{{SUMMARY}}/g, issueData.fields?.summary?.value || '');
-      
-      // Убираем пустые строки, оставшиеся после удаления
+
+      //  Убираем пустые строки, оставшиеся после удаления
       result = result.replace(/\n{3,}/g, '\n\n'); // Максимум 2 переноса подряд
       
       return result;

@@ -4,7 +4,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Initialize UI and load data
   await loadSettings();
   setupEventListeners();
-  updateModeUI(document.querySelector('input[name="syncMode"]:checked').value);
+  
+  // Initial UI state
+  const syncMode = document.querySelector('input[name="syncMode"]:checked')?.value || 'personal';
+  updateModeUI(syncMode);
   updateStatusPreview();
 });
 
@@ -12,12 +15,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 async function loadSettings() {
   const settings = await chrome.storage.local.get([
-    'syncMode', 'teamId', 'userEmail', 'userName', 'userColor', 'customStatuses', 'officeDetectionEnabled'
+    'syncMode', 'teamId', 'userEmail', 'userName', 'userColor', 'customStatuses', 'officeDetectionEnabled', 'smartFieldConfig'
   ]);
 
   // Sync Mode
   const syncMode = settings.syncMode || 'personal';
-  document.querySelector(`input[name="syncMode"][value="${syncMode}"]`).checked = true;
+  const modeInput = document.querySelector(`input[name="syncMode"][value="${syncMode}"]`);
+  if (modeInput) modeInput.checked = true;
 
   // Office Detection
   document.getElementById('officeDetectionToggle').checked = settings.officeDetectionEnabled !== false;
@@ -48,9 +52,38 @@ async function loadSettings() {
   // Copypaste Template
   const { copypasteTemplate } = await chrome.storage.local.get('copypasteTemplate');
   document.getElementById('copypasteTemplate').value = copypasteTemplate || ``;
+  
+  // Load Field Priorities
+  if (settings.smartFieldConfig) {
+    loadFieldPriorities(settings.smartFieldConfig);
+  }
+}
 
-  // Available Fields for Template - DEPRECATED: Now using smart placeholders
-  // await loadAvailableFields();
+function loadFieldPriorities(config) {
+  for (const [category, data] of Object.entries(config)) {
+    const list = document.getElementById(`${category}Priority`);
+    if (!list || !data.priority) continue;
+
+    const currentItems = Array.from(list.querySelectorAll('.field-priority-item'));
+    const itemMap = new Map(currentItems.map(item => [item.dataset.field, item]));
+    
+    // Clear list
+    list.innerHTML = '';
+    
+    // Add items in saved order
+    data.priority.forEach(fieldId => {
+      const item = itemMap.get(fieldId);
+      if (item) {
+        list.appendChild(item);
+        itemMap.delete(fieldId);
+      }
+    });
+    
+    // Add any remaining items (newly added fields since save)
+    itemMap.forEach(item => list.appendChild(item));
+    
+    updatePriorityNumbers(list);
+  }
 }
 
 async function loadCustomStatuses() {
@@ -86,7 +119,7 @@ async function loadIssueDataList() {
     const issueDataEntries = Object.entries(allData).filter(([key]) => key.startsWith('issuedata_'));
 
     if (issueDataEntries.length === 0) {
-        tableBody.innerHTML = `<tr><td colspan="4" style="text-align: center; padding: 20px;">Нет сохраненных данных по карточкам.</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="4" style="text-align: center; padding: 20px; color: var(--color-fg-muted);">Нет сохраненных данных по карточкам.</td></tr>`;
         return;
     }
 
@@ -123,97 +156,13 @@ async function loadIssueDataList() {
     tableBody.innerHTML = rowsHtml;
 }
 
-async function loadAvailableFields() {
-    const allData = await chrome.storage.local.get(null);
-    const issueDataEntries = Object.values(allData).filter(value => value && value.issueKey && value.fields);
-
-    const uniqueFields = new Map();
-
-    // Add default fields first, they will be handled specially
-    const defaultFields = new Map([
-        ['TASK_ID', { label: 'ID Задачи', id: 'TASK_ID' }],
-        ['USER_NAME', { label: 'Имя пользователя', id: 'USER_NAME' }],
-        ['EQUIPMENT', { label: 'Оборудование', id: 'EQUIPMENT' }],
-        ['ADDRESS', { label: 'Адрес', id: 'ADDRESS' }],
-        ['SUMMARY', { label: 'Название заявки', id: 'SUMMARY' }]
-    ]);
-
-    for (const entry of issueDataEntries) {
-        for (const [fieldId, fieldData] of Object.entries(entry.fields)) {
-            if (!defaultFields.has(fieldId) && fieldData.label) {
-                uniqueFields.set(fieldId, { label: fieldData.label, id: fieldId });
-            }
-        }
-    }
-
-    // --- Grouping and Sorting Logic ---
-    const groups = {
-        'Основные': Array.from(defaultFields.values()),
-        'Пользователь': [],
-        'Оборудование': [],
-        'Локация': [],
-        'Прочее': []
-    };
-
-    const groupKeywords = {
-        'Пользователь': ['пользовател', 'сотрудник', 'telegram', 'имя', 'фамилия', 'отчество', 'должность', 'позиция', 'отдел', 'департамент', 'recruiter', 'руководител', 'наблюдатели'],
-        'Оборудование': ['оборудован', 'техника', 'equipment', 'mac', 'озу', 'ram', 'процессор', 'cpu', 'хранилище', 'storage', 'диагональ', 'периферия', 'выкуп', 'увольнения'],
-        'Локация': ['адрес', 'офис', 'гео', 'geo', 'город', 'страна', 'country']
-    };
-
-    uniqueFields.forEach(field => {
-        const lowerCaseLabel = field.label.toLowerCase();
-        let assigned = false;
-        for (const groupName in groupKeywords) {
-            if (groupKeywords[groupName].some(keyword => lowerCaseLabel.includes(keyword))) {
-                groups[groupName].push(field);
-                assigned = true;
-                break;
-            }
-        }
-        if (!assigned) {
-            groups['Прочее'].push(field);
-        }
-    });
-
-    // Sort fields within each group alphabetically by label
-    for (const groupName in groups) {
-        groups[groupName].sort((a, b) => a.label.localeCompare(b.label, 'ru'));
-    }
-
-    const fieldsContainer = document.getElementById('availableFields');
-    fieldsContainer.innerHTML = ''; // Clear existing fields
-
-    for (const groupName in groups) {
-        const groupFields = groups[groupName];
-        if (groupFields.length > 0) {
-            const groupHeader = document.createElement('h4');
-            groupHeader.className = 'field-group-header';
-            groupHeader.textContent = groupName;
-            fieldsContainer.appendChild(groupHeader);
-
-            const groupContainer = document.createElement('div');
-            groupContainer.className = 'field-group-container';
-            
-            groupFields.forEach(field => {
-                const pill = document.createElement('div');
-                pill.className = 'field-pill';
-                pill.textContent = field.label;
-                pill.title = `Плейсхолдер: {{${field.id}}}`;
-                pill.draggable = true;
-                pill.dataset.placeholder = `{{${field.id}}}`;
-                groupContainer.appendChild(pill);
-            });
-            fieldsContainer.appendChild(groupContainer);
-        }
-    }
-}
-
-
 // --- UI Update Functions ---
 
 function updateModeUI(mode) {
-  document.getElementById('syncSettings').style.display = mode === 'team' ? 'block' : 'none';
+  const syncSettings = document.getElementById('syncSettings');
+  if (syncSettings) {
+    syncSettings.style.display = mode === 'team' ? 'block' : 'none';
+  }
 }
 
 function updateStatusPreview() {
@@ -224,6 +173,16 @@ function updateStatusPreview() {
   document.getElementById('previewName').textContent = name;
   document.getElementById('previewEmoji').textContent = emoji;
   document.getElementById('previewDot').style.backgroundColor = color;
+}
+
+function showToast(message, type = 'success') {
+  const toast = document.getElementById('toast');
+  toast.textContent = message;
+  toast.className = `toast show ${type}`; // type can be 'success' or 'error' (add css for error if needed)
+  
+  setTimeout(() => {
+    toast.className = toast.className.replace('show', '');
+  }, 3000);
 }
 
 // --- Event Listeners ---
@@ -251,6 +210,7 @@ function setupEventListeners() {
   // Office detection toggle
   document.getElementById('officeDetectionToggle').addEventListener('change', (e) => {
       chrome.storage.local.set({ officeDetectionEnabled: e.target.checked });
+      showToast('Настройки сохранены');
   });
 
   // Color picker
@@ -268,6 +228,7 @@ function setupEventListeners() {
       const userEmail = document.getElementById('userEmail').value;
       const userName = document.getElementById('userName').value;
       chrome.storage.local.set({ teamId, userEmail, userName });
+      showToast('Настройки подключения сохранены');
       // Add connection logic here
   });
 
@@ -278,7 +239,10 @@ function setupEventListeners() {
 
   document.getElementById('addStatusBtn').addEventListener('click', async () => {
     const name = document.getElementById('newStatusName').value.trim();
-    if (!name) return alert('Название статуса не может быть пустым.');
+    if (!name) {
+        showToast('Название статуса не может быть пустым', 'error');
+        return;
+    }
 
     const newStatus = {
       id: 'custom_' + Date.now(),
@@ -293,6 +257,12 @@ function setupEventListeners() {
     statuses.push(newStatus);
     await chrome.storage.local.set({ customStatuses: statuses });
     await loadCustomStatuses();
+    
+    // Reset form
+    document.getElementById('newStatusName').value = '';
+    document.getElementById('newStatusEmoji').value = '';
+    updateStatusPreview();
+    showToast('Статус добавлен');
   });
   
   // Reset statuses
@@ -300,6 +270,7 @@ function setupEventListeners() {
       if (confirm('Вы уверены, что хотите сбросить статусы к стандартным? Все ваши созданные статусы будут удалены.')) {
           await chrome.storage.local.remove('customStatuses');
           await loadCustomStatuses();
+          showToast('Статусы сброшены');
       }
   });
 
@@ -308,6 +279,7 @@ function setupEventListeners() {
       if (confirm('Вы уверены, что хотите удалить ВСЕ статусы?')) {
           await chrome.storage.local.set({ customStatuses: [] });
           await loadCustomStatuses();
+          showToast('Все статусы удалены');
       }
   });
 
@@ -317,8 +289,8 @@ function setupEventListeners() {
       const statusId = e.target.dataset.id;
       if (confirm('Удалить этот статус?')) {
         let { customStatuses } = await chrome.storage.local.get('customStatuses');
-        // Если customStatuses не существует, используем стандартный набор
         if (!customStatuses) {
+            // If no custom statuses saved yet, but user sees defaults, we need to init them first
             customStatuses = [
                 { id: 'red', name: 'Проблема', color: '#EF4444', isDefault: true },
                 { id: 'yellow', name: 'В процессе', color: '#EAB308', isDefault: true },
@@ -329,6 +301,7 @@ function setupEventListeners() {
         const filtered = customStatuses.filter(s => s.id !== statusId);
         await chrome.storage.local.set({ customStatuses: filtered });
         await loadCustomStatuses();
+        showToast('Статус удален');
       }
     }
   });
@@ -353,6 +326,7 @@ function setupEventListeners() {
           const keysToDelete = Object.keys(allData).filter(key => key.startsWith('issuedata_'));
           await chrome.storage.local.remove(keysToDelete);
           await loadIssueDataList();
+          showToast('Данные очищены');
       }
   });
 
@@ -363,7 +337,7 @@ function setupEventListeners() {
         const issueDataEntries = Object.entries(allData).filter(([key]) => key.startsWith('issuedata_'));
 
         if (issueDataEntries.length === 0) {
-            alert('Нет данных для экспорта.');
+            showToast('Нет данных для экспорта', 'error');
             return;
         }
 
@@ -378,10 +352,11 @@ function setupEventListeners() {
         a.download = `jira-issues-export-${new Date().toISOString().split('T')[0]}.json`;
         a.click();
         URL.revokeObjectURL(url);
+        showToast('Экспорт завершен');
 
     } catch (error) {
         console.error('Export error:', error);
-        alert('Произошла ошибка при экспорте данных.');
+        showToast('Ошибка при экспорте', 'error');
     }
   });
 
@@ -391,14 +366,7 @@ function setupEventListeners() {
   document.getElementById('saveTemplateBtn').addEventListener('click', () => {
     const template = document.getElementById('copypasteTemplate').value;
     chrome.storage.local.set({ copypasteTemplate: template }, () => {
-      const btn = document.getElementById('saveTemplateBtn');
-      const originalText = btn.textContent;
-      btn.textContent = '✅ Сохранено!';
-      btn.classList.add('btn-success');
-      setTimeout(() => {
-        btn.textContent = originalText;
-        btn.classList.remove('btn-success');
-      }, 2000);
+      showToast('Шаблон сохранен');
     });
   });
 
@@ -415,11 +383,11 @@ function setupEventListeners() {
       '{{СОДЕРЖАНИЕ}}'
     ];
     
-    // Удаляем старое меню если открыто
+    // Remove old menu if exists
     const oldMenu = document.querySelector('.placeholder-menu');
     if (oldMenu) oldMenu.remove();
 
-    // Создаем меню без inline стилей (тёмная тема поддерживается через CSS)
+    // Create menu
     const menu = document.createElement('div');
     menu.className = 'placeholder-menu';
 
@@ -442,8 +410,11 @@ function setupEventListeners() {
     // Position near button
     const btn = document.getElementById('insertPlaceholderBtn');
     const rect = btn.getBoundingClientRect();
+    // Simple positioning, can be improved
+    menu.style.position = 'absolute';
     menu.style.left = `${rect.left}px`;
-    menu.style.top = `${rect.bottom + 4}px`;
+    menu.style.top = `${rect.bottom + window.scrollY + 4}px`;
+    menu.style.zIndex = '1000';
     
     document.body.appendChild(menu);
     
@@ -473,69 +444,21 @@ function setupEventListeners() {
 Твой телеграм: {{ТЕЛЕГРАМ}}`;
     
     document.getElementById('copypasteTemplate').value = exampleTemplate;
-    
-    // Show confirmation
-    const btn = document.getElementById('loadExampleBtn');
-    const originalText = btn.textContent;
-    btn.textContent = '✅ Загружено';
-    setTimeout(() => {
-      btn.textContent = originalText;
-    }, 1500);
+    showToast('Пример загружен');
   });
 
   // Clear Template Button
   document.getElementById('clearTemplateBtn').addEventListener('click', () => {
     if (confirm('Вы уверены, что хотите очистить шаблон?')) {
       document.getElementById('copypasteTemplate').value = '';
+      showToast('Шаблон очищен');
     }
   });
-
-  // --- Template Drag and Drop Logic ---
-  const availableFieldsContainer = document.getElementById('availableFields');
-  const templateTextarea = document.getElementById('copypasteTemplate');
-
-  if (availableFieldsContainer) {
-    availableFieldsContainer.addEventListener('dragstart', (e) => {
-      if (e.target.classList.contains('field-pill')) {
-        e.dataTransfer.setData('text/plain', e.target.dataset.placeholder);
-        e.target.style.opacity = '0.5';
-      }
-    });
-
-    availableFieldsContainer.addEventListener('dragend', (e) => {
-      if (e.target.classList.contains('field-pill')) {
-        e.target.style.opacity = '1';
-      }
-    });
-  }
-
-  if (templateTextarea) {
-    templateTextarea.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      templateTextarea.classList.add('drag-over');
-    });
-
-    templateTextarea.addEventListener('dragleave', () => {
-      templateTextarea.classList.remove('drag-over');
-    });
-
-    templateTextarea.addEventListener('drop', (e) => {
-      e.preventDefault();
-      templateTextarea.classList.remove('drag-over');
-      const placeholder = e.dataTransfer.getData('text/plain');
-      const start = templateTextarea.selectionStart;
-      const end = templateTextarea.selectionEnd;
-      const text = templateTextarea.value;
-      templateTextarea.value = text.substring(0, start) + placeholder + text.substring(end);
-      templateTextarea.focus();
-      templateTextarea.selectionEnd = start + placeholder.length;
-    });
-  }
   
   // --- Smart Field Priorities ---
   
   // Initialize drag and drop for field priorities
-    const categories = ['fullname', 'address', 'telegram', 'phone', 'equipment', 'peripherals', 'description'];
+  const categories = ['fullname', 'address', 'telegram', 'phone', 'equipment', 'peripherals', 'description'];
   categories.forEach(category => {
     const list = document.getElementById(`${category}Priority`);
     if (!list) return;
@@ -558,16 +481,7 @@ function setupEventListeners() {
     });
     
     await chrome.storage.local.set({ smartFieldConfig: config });
-    
-    // Show confirmation
-    const btn = document.getElementById('saveFieldPrioritiesBtn');
-    const originalText = btn.textContent;
-    btn.textContent = 'Сохранено!';
-    btn.classList.add('btn-success');
-    setTimeout(() => {
-      btn.textContent = originalText;
-      btn.classList.remove('btn-success');
-    }, 2000);
+    showToast('Приоритеты полей сохранены');
   });
   
   // Reset field priorities button

@@ -108,9 +108,11 @@
     let codeSpan = link.querySelector(`.jira-personal-code-inline[data-issue-key="${issueKey}"]`);
     let addressSpan = link.querySelector(`.jira-personal-address-inline[data-issue-key="${issueKey}"]`);
 
-    // Если экстракция ещё в процессе (pending) — НЕ показываем код/адрес и восстанавливаем оригинальный Issue Key
-    if (ext.pendingIssues && ext.pendingIssues[issueKey]) {
-      if (debugEnabled) console.log(`[RENDERER] ⏳ Pending extraction for ${issueKey}, skip rendering office/address`);
+    // Если экстракция ещё в процессе (pending) И нет кешированных данных — НЕ показываем код/адрес
+    // Если данные есть в кеше - показываем их (stale-while-revalidate)
+    const hasCachedData = ext.codeCache[issueKey] || ext.addressCache[issueKey];
+    if (ext.pendingIssues && ext.pendingIssues[issueKey] && !hasCachedData) {
+      if (debugEnabled) console.log(`[RENDERER] ⏳ Pending extraction for ${issueKey} (no cache), skip rendering`);
       if (codeSpan) { codeSpan.remove(); codeSpan = null; }
       if (addressSpan) { addressSpan.remove(); addressSpan = null; }
       // Попробуем восстановить скрытые div-ы с issueKey
@@ -157,12 +159,68 @@
         addressSpan = document.createElement('div');
         addressSpan.className='jira-personal-address-inline';
         addressSpan.dataset.issueKey = issueKey;
+        
+        // НОВОЕ: Обработчик клика для перепроверки кода офиса
+        addressSpan.style.cursor = 'pointer';
+        addressSpan.addEventListener('click', async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          
+          const originalText = addressSpan.textContent;
+          addressSpan.textContent = '⏳';
+          addressSpan.style.opacity = '0.7';
+          
+          try {
+            if (debugEnabled) console.log(`[RENDERER] 🔄 Manual office code check for ${issueKey}`);
+            
+            // 1. Перезагружаем маппинг (вдруг обновили code.json)
+            if (typeof ext.loadAddressMapping === 'function') {
+              await ext.loadAddressMapping();
+            }
+            
+            // 2. Пробуем определить код заново по кешированному адресу
+            const address = ext.addressCache[issueKey];
+            if (address && typeof ext.getOfficeCode === 'function') {
+              const newCode = ext.getOfficeCode(address);
+              if (debugEnabled) console.log(`[RENDERER] New code calculation: "${newCode}"`);
+              
+              if (newCode && newCode !== 'ХЗ') {
+                // Ура, нашли код! Сохраняем и обновляем
+                ext.codeCache[issueKey] = newCode;
+                await chrome.storage.local.set({ [`code_${issueKey}`]: newCode });
+                
+                // Форсируем обновление карточки (она станет синей)
+                if (typeof ext.updateSingleCard === 'function') {
+                  ext.updateSingleCard(issueKey);
+                }
+                return;
+              }
+            }
+            
+            // Если ничего не нашли - возвращаем как было
+            addressSpan.textContent = originalText;
+            addressSpan.style.opacity = '1';
+            
+            // Визуальный фидбек неудачи (красноватый фон на полсекунды)
+            const originalBg = addressSpan.style.backgroundColor;
+            addressSpan.style.backgroundColor = 'rgba(255, 0, 0, 0.2)';
+            setTimeout(() => {
+              addressSpan.style.backgroundColor = originalBg;
+            }, 300);
+            
+          } catch (err) {
+            console.error('Manual check failed:', err);
+            addressSpan.textContent = originalText;
+            addressSpan.style.opacity = '1';
+          }
+        });
+        
         link.appendChild(addressSpan);
       }
       const newText = ` ${ext.addressCache[issueKey]}`;
-      if(addressSpan.textContent !== newText){
+      if(addressSpan.textContent !== newText && addressSpan.textContent !== '⏳'){
         addressSpan.textContent = newText;
-        addressSpan.title = `Адрес: ${ext.addressCache[issueKey]} (${issueKey})`;
+        addressSpan.title = `Адрес: ${ext.addressCache[issueKey]}\n(Нажмите для перепроверки кода)`;
       }
     } else {
       if(codeSpan) codeSpan.remove();

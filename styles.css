@@ -64,8 +64,9 @@
   color: var(--jpn-color-fg-default);
   display: flex;
   flex-direction: column;
-  transition: top 0.4s cubic-bezier(0.4, 0, 0.2, 1),
-              bottom 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  /* Оптимизация: анимируем transform вместо top/bottom для 60fps */
+  transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform;
 }
 
 /* Контент с плавным скрытием - снизу вверх */
@@ -74,7 +75,7 @@
               opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1),
               padding 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   opacity: 1;
-  max-height: 5000px;
+  max-height: 800px;
   overflow: hidden;
   transform-origin: top;
 }
