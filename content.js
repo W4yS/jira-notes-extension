@@ -881,12 +881,21 @@ class JiraNotesExtension {
         
         // Проверяем наличие НЕСКОЛЬКИХ customfield элементов с реальным контентом
         const fieldElements = document.querySelectorAll('[data-testid*="customfield_"]');
-        const fieldsWithContent = Array.from(fieldElements).filter(el => {
+        const genericFieldElements = document.querySelectorAll('[data-testid*="issue-field"]');
+        
+        const allFields = new Set([...fieldElements, ...genericFieldElements]);
+        
+        const fieldsWithContent = Array.from(allFields).filter(el => {
           const text = el.textContent.trim();
           return text && text.length > 0 && !text.includes('Добавьте вариант');
         });
         
-        if (modal && fieldsWithContent.length >= 3) {
+        // Также проверяем наличие заголовка
+        const summaryElement = document.querySelector('[data-testid="issue.views.issue-base.foundation.summary.heading"]') || 
+                               document.querySelector('h1[data-testid*="summary.heading"]');
+        
+        // Если есть заголовок и хотя бы одно поле (или просто заголовок) - считаем что готово
+        if (modal && (fieldsWithContent.length >= 1 || summaryElement)) {
           console.log(`✅ Jira modal ready: ${fieldsWithContent.length} fields detected, waiting 500ms...`);
           setTimeout(() => resolve(true), 500);
         } else if (attempts >= maxAttempts) {
@@ -1627,12 +1636,27 @@ class JiraNotesExtension {
       // ОПТИМИЗАЦИЯ: Находим все элементы заранее
       const customFieldElements = document.querySelectorAll('[data-testid*="customfield_"]');
       const systemFieldElements = document.querySelectorAll('[data-testid^="issue.views.field."]'); // Системные поля
+      // Добавляем более широкий поиск для проверки готовности (на случай изменений в Jira)
+      const genericFieldElements = document.querySelectorAll('[data-testid*="issue-field"], [data-testid*="field.value"]');
       
-      const totalElements = customFieldElements.length + systemFieldElements.length;
+      // Используем Set для уникальности элементов (если селекторы пересекаются)
+      const allFoundElements = new Set([
+        ...customFieldElements, 
+        ...systemFieldElements,
+        ...genericFieldElements
+      ]);
+      
+      const totalElements = allFoundElements.size;
 
-      // ПРОВЕРКА ГОТОВНОСТИ МОДАЛА: если нет summary или слишком мало элементов (системных + кастомных), считаем что модал ещё грузится
-      if (!force && (!summaryElement || totalElements < 2)) {
+      // ПРОВЕРКА ГОТОВНОСТИ МОДАЛА:
+      // 1. Если нет summary - точно не готово (или это не задача)
+      if (!force && !summaryElement) {
         return { _notReady: true, elementCount: totalElements };
+      }
+      
+      // 2. Если есть summary, но совсем нет полей - подождем, если не force
+      if (!force && totalElements === 0) {
+         return { _notReady: true, elementCount: totalElements };
       }
       
       const customFields = new Map();
