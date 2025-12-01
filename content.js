@@ -508,6 +508,25 @@ class JiraNotesExtension {
     // ОЧИЩАЕМ ВСЕ СТАРЫЕ ЭЛЕМЕНТЫ при инициализации расширения
     this.cleanupOldElements();
     
+    // Initialize Supabase sync manager
+    try {
+      const settings = await chrome.storage.local.get(['syncMode', 'config']);
+      if (settings.syncMode === 'team' && settings.config) {
+        console.log('☁️ Initializing Supabase sync for content.js...');
+        if (typeof SupabaseSync !== 'undefined') {
+          window.syncManager = new SupabaseSync(settings.config);
+          await window.syncManager.init();
+          console.log('✅ Supabase sync initialized in content.js');
+        } else {
+          console.warn('⚠️ SupabaseSync class not found, sync disabled');
+        }
+      } else {
+        console.log('💾 Using local-only mode (no Supabase sync)');
+      }
+    } catch (error) {
+      console.error('❌ Failed to initialize Supabase sync:', error);
+    }
+    
     // Initialize IndexedDB
     try {
       await this.db.init();
@@ -722,10 +741,22 @@ class JiraNotesExtension {
   
   async saveNote(issueKey, noteText) {
     try {
+      // Local storage
       if (this.dbInitialized) {
         await this.db.saveNote(issueKey, { text: noteText });
       } else {
         await chrome.storage.local.set({ [`note_${issueKey}`]: noteText });
+      }
+      
+      // Supabase sync (if enabled and in team mode)
+      try {
+        const settings = await chrome.storage.local.get('syncMode');
+        if (settings.syncMode === 'team' && window.syncManager) {
+          await window.syncManager.saveNote(issueKey, noteText);
+          console.log('☁️ Note synced to Supabase:', issueKey);
+        }
+      } catch (syncError) {
+        console.warn('⚠️ Supabase sync failed (saved locally):', syncError);
       }
     } catch (error) {
       console.error('❌ Error saving note:', error);
@@ -788,6 +819,17 @@ class JiraNotesExtension {
     const data = await this.getIssueData(issueKey) || {};
     data.status = statusId;
     await this.saveIssueData(issueKey, data);
+    
+    // Supabase sync (if enabled and in team mode)
+    try {
+      const settings = await chrome.storage.local.get('syncMode');
+      if (settings.syncMode === 'team' && window.syncManager) {
+        await window.syncManager.saveStatus(issueKey, statusId);
+        console.log('☁️ Status synced to Supabase:', issueKey, statusId);
+      }
+    } catch (syncError) {
+      console.warn('⚠️ Supabase status sync failed (saved locally):', syncError);
+    }
   }
   
   async getAddress(issueKey) {
