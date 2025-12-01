@@ -243,6 +243,23 @@ class SupabaseSync {
     }
   }
 
+  async getTeamMembers(teamId) {
+    try {
+      const { data, error } = await this.supabase
+        .from('team_members')
+        .select('user_id, role, joined_at')
+        .eq('team_id', teamId || this.currentTeamId);
+
+      if (error) throw error;
+
+      console.log('👥 Team members loaded:', data?.length || 0);
+      return { success: true, members: data || [] };
+    } catch (error) {
+      console.error('❌ Failed to get team members:', error);
+      return { success: false, error: error.message, members: [] };
+    }
+  }
+
   async loadTeamId() {
     const result = await chrome.storage.local.get('current_team_id');
     if (result.current_team_id) {

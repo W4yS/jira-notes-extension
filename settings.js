@@ -144,22 +144,30 @@ async function showTeamUI(team) {
 }
 
 async function loadTeamMembers() {
-  // TODO: Add endpoint to get team members
   const membersList = document.getElementById('teamMembersList');
+  if (!membersList || !syncManager) return;
+  
   membersList.innerHTML = '<p class="note">Загрузка участников...</p>';
   
-  // For now, show placeholder
-  setTimeout(() => {
-    membersList.innerHTML = `
-      <div class="member-item">
-        <div class="member-info">
-          <div class="member-avatar">👤</div>
-          <span class="member-name">Вы</span>
+  try {
+    const result = await syncManager.getTeamMembers();
+    if (result.success && result.members.length > 0) {
+      membersList.innerHTML = result.members.map(member => `
+        <div class="member-item">
+          <div class="member-info">
+            <div class="member-avatar">👤</div>
+            <span class="member-name">${member.user_id.substring(0, 8)}...</span>
+          </div>
+          <span class="member-role ${member.role}">${member.role}</span>
         </div>
-        <span class="member-role admin">admin</span>
-      </div>
-    `;
-  }, 500);
+      `).join('');
+    } else {
+      membersList.innerHTML = '<div class="member-item">Участников не найдено</div>';
+    }
+  } catch (error) {
+    console.error('Failed to load members:', error);
+    membersList.innerHTML = '<div class="member-item">Ошибка загрузки участников</div>';
+  }
 }
 
 async function updateSyncStats() {
@@ -546,6 +554,10 @@ function setupEventListeners() {
         showToast('Вы присоединились к команде!');
         await checkTeamStatus();
         await updateSyncStats();
+        // Перезагружаем страницу для обновления real-time подписки
+        setTimeout(() => {
+          window.location.reload();
+        }, 1000);
         document.getElementById('joinTeamId').value = '';
       } else {
         showToast('Ошибка: ' + result.error, 'error');
