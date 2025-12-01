@@ -21,7 +21,7 @@
         "*://*.atlassian.net/browse/*",
         "*://*.atlassian.net/jira/*"
       ],
-      "js": ["db.js", "parser.js", "renderer.js", "content.js"],
+      "js": ["supabase.min.js", "db.js", "sync.js", "parser.js", "renderer.js", "content.js"],
       "css": ["styles.css"],
       "run_at": "document_end"
     }
@@ -39,12 +39,17 @@
     {
       "resources": [
         "code.json",
+        "config.json",
         "icons/mac_OS_128px.svg",
         "icons/win_128.svg",
         "icons/win_48.svg",
         "icons/other.svg",
         "templates.html",
         "db.js",
+        "sync.js",
+        "supabase.min.js",
+        "auth.html",
+        "auth.js",
         "virtual-scroller.js"
       ],
       "matches": ["*://*.atlassian.net/*"]

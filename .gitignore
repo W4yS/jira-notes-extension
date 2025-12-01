@@ -24,6 +24,7 @@ storage_backup.json
 # Firebase configuration with sensitive data
 firebase-config.js
 code.json
+config.json
 
 # Jira exports (confidential)
 jira-issues-export-*.json

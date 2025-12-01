@@ -1,0 +1,4 @@
+{
+  "supabaseUrl": "https://ваш-проект.supabase.co",
+  "supabaseKey": "ваш-anon-public-ключ"
+}

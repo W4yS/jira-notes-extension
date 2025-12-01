@@ -74,40 +74,126 @@
       </div>
 
       <div id="syncSettings" style="display: none;">
-        <div class="box">
+        <!-- Авторизация -->
+        <div class="box" id="authBox">
           <div class="box-header">
-            <h3>Настройки командной синхронизации</h3>
+            <h3>🔐 Авторизация</h3>
           </div>
           <div class="box-body">
-            <div class="form-group">
-              <label for="teamId">Team ID</label>
-              <input type="text" id="teamId" class="form-control" placeholder="например: support-team-01">
-              <p class="note">Уникальный идентификатор вашей команды. Согласуйте его со всеми участниками.</p>
-            </div>
-            <div class="form-group">
-              <label for="userEmail">Ваш Email</label>
-              <input type="email" id="userEmail" class="form-control" placeholder="your.name@company.com">
-              <p class="note">Используется для вашей идентификации в команде.</p>
-            </div>
-            <div class="form-group">
-              <label for="userName">Ваше имя</label>
-              <input type="text" id="userName" class="form-control" placeholder="Иван Петров">
-              <p class="note">Будет видно другим участникам команды.</p>
-            </div>
-            <div class="form-group">
-              <label>Ваш цвет</label>
-              <div class="color-selector" id="colorSelector">
-                <!-- Colors will be injected by JS -->
+            <div id="notAuthenticatedSection">
+              <p class="note" style="margin-bottom: 16px;">Для работы командной синхронизации необходимо войти в аккаунт Supabase.</p>
+              
+              <div class="form-group">
+                <label for="authEmail">Email</label>
+                <input type="email" id="authEmail" class="form-control" placeholder="your@email.com">
               </div>
-              <p class="note">Этот цвет будет помечать ваши изменения для других.</p>
+              
+              <div class="form-group">
+                <label for="authPassword">Пароль</label>
+                <input type="password" id="authPassword" class="form-control" placeholder="Минимум 6 символов">
+              </div>
+              
+              <div id="authMessage" class="auth-message" style="display: none;"></div>
+            </div>
+            
+            <div id="authenticatedSection" style="display: none;">
+              <div class="user-info">
+                <div class="user-avatar">👤</div>
+                <div>
+                  <div class="user-email" id="userEmailDisplay"></div>
+                  <div class="user-status">✅ Авторизован</div>
+                </div>
+              </div>
             </div>
           </div>
           <div class="box-footer">
-            <div id="statusIndicator" class="status-indicator offline" style="display: none; margin-right: auto;">
-              <span id="statusText">Отключено</span>
+            <div id="notAuthenticatedButtons">
+              <button class="btn btn-secondary" id="signUpBtn">Зарегистрироваться</button>
+              <button class="btn btn-primary" id="signInBtn">Войти</button>
             </div>
-            <button class="btn btn-secondary" id="testBtn">Тест</button>
-            <button class="btn btn-primary" id="connectBtn">Подключиться</button>
+            <div id="authenticatedButtons" style="display: none;">
+              <button class="btn btn-danger" id="signOutBtn">Выйти</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Управление командой -->
+        <div class="box" id="teamBox" style="display: none;">
+          <div class="box-header">
+            <h3>👥 Команда</h3>
+          </div>
+          <div class="box-body">
+            <div id="noTeamSection">
+              <p class="note" style="margin-bottom: 16px;">Вы еще не состоите в команде. Создайте новую или присоединитесь к существующей.</p>
+              
+              <div class="form-group">
+                <label for="newTeamName">Создать команду</label>
+                <input type="text" id="newTeamName" class="form-control" placeholder="Название команды">
+              </div>
+              
+              <div style="margin: 20px 0; text-align: center; color: var(--color-fg-muted);">или</div>
+              
+              <div class="form-group">
+                <label for="joinTeamId">Присоединиться к команде</label>
+                <input type="text" id="joinTeamId" class="form-control" placeholder="Вставьте Team ID">
+                <p class="note">Получите Team ID от администратора команды</p>
+              </div>
+            </div>
+            
+            <div id="hasTeamSection" style="display: none;">
+              <div class="team-info">
+                <div class="team-name" id="currentTeamName"></div>
+                <div class="team-id">ID: <code id="currentTeamId"></code> 
+                  <button class="btn-copy" id="copyTeamIdBtn" title="Скопировать">📋</button>
+                </div>
+                <div class="team-members" id="teamMembersList"></div>
+              </div>
+            </div>
+          </div>
+          <div class="box-footer">
+            <div id="noTeamButtons">
+              <button class="btn btn-secondary" id="joinTeamBtn">Присоединиться</button>
+              <button class="btn btn-primary" id="createTeamBtn">Создать команду</button>
+            </div>
+            <div id="hasTeamButtons" style="display: none;">
+              <button class="btn btn-secondary" id="leaveTeamBtn">Покинуть команду</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Статус синхронизации -->
+        <div class="box" id="syncStatusBox" style="display: none;">
+          <div class="box-header">
+            <h3>📊 Статус синхронизации</h3>
+          </div>
+          <div class="box-body">
+            <div class="sync-stats" id="syncStats">
+              <div class="stat-item">
+                <div class="stat-label">Заметок синхронизировано</div>
+                <div class="stat-value" id="notesCount">—</div>
+              </div>
+              <div class="stat-item">
+                <div class="stat-label">Статусов синхронизировано</div>
+                <div class="stat-value" id="statusesCount">—</div>
+              </div>
+              <div class="stat-item">
+                <div class="stat-label">Участников команды</div>
+                <div class="stat-value" id="membersCount">—</div>
+              </div>
+              <div class="stat-item">
+                <div class="stat-label">В очереди на синхронизацию</div>
+                <div class="stat-value" id="queueCount">—</div>
+              </div>
+            </div>
+            
+            <div id="syncStatus" class="status-indicator" style="margin-top: 16px;">
+              <span class="status-dot" id="syncStatusDot"></span>
+              <span id="syncStatusText">Проверка...</span>
+            </div>
+          </div>
+          <div class="box-footer">
+            <button class="btn btn-secondary" id="refreshStatsBtn">Обновить статистику</button>
+            <button class="btn btn-primary" id="forceSyncBtn">Синхронизировать сейчас</button>
           </div>
         </div>
       </div>
@@ -460,8 +546,8 @@
   <!-- Toast Notification Container -->
   <div id="toast" class="toast"></div>
 
-  <script src="firebase-app-compat.js"></script>
-  <script src="firebase-database-compat.js"></script>
+  <script src="supabase.min.js"></script>
+  <script src="sync.js"></script>
   <script src="settings.js" type="module"></script>
 </body>
 </html>

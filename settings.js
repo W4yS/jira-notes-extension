@@ -1,6 +1,11 @@
-// Settings Page Logic v2 - GitHub Style
+// Settings Page Logic v2 - GitHub Style + Supabase Auth
+
+let syncManager = null; // Instance of SupabaseSync
 
 document.addEventListener('DOMContentLoaded', async () => {
+  // Initialize Supabase sync
+  await initializeSupabaseSync();
+  
   // Initialize UI and load data
   await loadSettings();
   setupEventListeners();
@@ -11,51 +16,239 @@ document.addEventListener('DOMContentLoaded', async () => {
   updateStatusPreview();
 });
 
+// === Supabase Initialization ===
+
+async function initializeSupabaseSync() {
+  try {
+    // Load config
+    const response = await fetch(chrome.runtime.getURL('config.json'));
+    
+    if (!response.ok) {
+      console.log('ℹ️ config.json not found - Supabase sync disabled');
+      return;
+    }
+    
+    const config = await response.json();
+    
+    if (!config.supabaseUrl || !config.supabaseKey) {
+      console.log('ℹ️ Supabase not configured in config.json');
+      return;
+    }
+
+    // Create sync manager instance
+    syncManager = new SupabaseSync();
+    const result = await syncManager.init(config.supabaseUrl, config.supabaseKey);
+    
+    if (result.success) {
+      console.log('✅ Supabase initialized:', result.user.email);
+      await updateAuthUI(true, result.user);
+      await checkTeamStatus();
+      await updateSyncStats();
+    } else {
+      console.log('ℹ️ Not authenticated');
+      await updateAuthUI(false);
+    }
+  } catch (error) {
+    console.log('ℹ️ Supabase sync not available:', error.message);
+    // Не показываем ошибку пользователю - это нормально, если Supabase не настроен
+  }
+}
+
+async function updateAuthUI(isAuthenticated, user = null) {
+  const notAuthSection = document.getElementById('notAuthenticatedSection');
+  const authSection = document.getElementById('authenticatedSection');
+  const notAuthButtons = document.getElementById('notAuthenticatedButtons');
+  const authButtons = document.getElementById('authenticatedButtons');
+  const teamBox = document.getElementById('teamBox');
+  const syncStatusBox = document.getElementById('syncStatusBox');
+  
+  // Проверяем существование элементов (на случай если в личном режиме)
+  if (!notAuthSection || !authSection) return;
+  
+  if (isAuthenticated && user) {
+    notAuthSection.style.display = 'none';
+    authSection.style.display = 'block';
+    if (notAuthButtons) notAuthButtons.style.display = 'none';
+    if (authButtons) authButtons.style.display = 'flex';
+    if (teamBox) teamBox.style.display = 'block';
+    if (syncStatusBox) syncStatusBox.style.display = 'block';
+    
+    const emailDisplay = document.getElementById('userEmailDisplay');
+    if (emailDisplay) emailDisplay.textContent = user.email;
+  } else {
+    notAuthSection.style.display = 'block';
+    authSection.style.display = 'none';
+    if (notAuthButtons) notAuthButtons.style.display = 'flex';
+    if (authButtons) authButtons.style.display = 'none';
+    if (teamBox) teamBox.style.display = 'none';
+    if (syncStatusBox) syncStatusBox.style.display = 'none';
+  }
+}
+
+async function checkTeamStatus() {
+  if (!syncManager || !syncManager.hasTeam()) {
+    showNoTeamUI();
+    return;
+  }
+  
+  try {
+    // Load team info
+    const { success, teams } = await syncManager.getMyTeams();
+    if (success && teams.length > 0) {
+      const teamData = teams[0].teams;
+      await showTeamUI(teamData);
+    } else {
+      showNoTeamUI();
+    }
+  } catch (error) {
+    console.error('Failed to check team status:', error);
+    showNoTeamUI();
+  }
+}
+
+function showNoTeamUI() {
+  const noTeamSection = document.getElementById('noTeamSection');
+  const hasTeamSection = document.getElementById('hasTeamSection');
+  const noTeamButtons = document.getElementById('noTeamButtons');
+  const hasTeamButtons = document.getElementById('hasTeamButtons');
+  
+  if (!noTeamSection) return;
+  
+  noTeamSection.style.display = 'block';
+  if (hasTeamSection) hasTeamSection.style.display = 'none';
+  if (noTeamButtons) noTeamButtons.style.display = 'flex';
+  if (hasTeamButtons) hasTeamButtons.style.display = 'none';
+}
+
+async function showTeamUI(team) {
+  const noTeamSection = document.getElementById('noTeamSection');
+  const hasTeamSection = document.getElementById('hasTeamSection');
+  const noTeamButtons = document.getElementById('noTeamButtons');
+  const hasTeamButtons = document.getElementById('hasTeamButtons');
+  
+  if (!hasTeamSection) return;
+  
+  if (noTeamSection) noTeamSection.style.display = 'none';
+  hasTeamSection.style.display = 'block';
+  if (noTeamButtons) noTeamButtons.style.display = 'none';
+  if (hasTeamButtons) hasTeamButtons.style.display = 'flex';
+  
+  const teamNameEl = document.getElementById('currentTeamName');
+  const teamIdEl = document.getElementById('currentTeamId');
+  
+  if (teamNameEl) teamNameEl.textContent = team.name;
+  if (teamIdEl) teamIdEl.textContent = team.id;
+  
+  // Load team members
+  await loadTeamMembers();
+}
+
+async function loadTeamMembers() {
+  // TODO: Add endpoint to get team members
+  const membersList = document.getElementById('teamMembersList');
+  membersList.innerHTML = '<p class="note">Загрузка участников...</p>';
+  
+  // For now, show placeholder
+  setTimeout(() => {
+    membersList.innerHTML = `
+      <div class="member-item">
+        <div class="member-info">
+          <div class="member-avatar">👤</div>
+          <span class="member-name">Вы</span>
+        </div>
+        <span class="member-role admin">admin</span>
+      </div>
+    `;
+  }, 500);
+}
+
+async function updateSyncStats() {
+  if (!syncManager) return;
+  
+  try {
+    const stats = await syncManager.getStats();
+    if (stats) {
+      const notesCount = document.getElementById('notesCount');
+      const statusesCount = document.getElementById('statusesCount');
+      const membersCount = document.getElementById('membersCount');
+      const queueCount = document.getElementById('queueCount');
+      
+      if (notesCount) notesCount.textContent = stats.notes || 0;
+      if (statusesCount) statusesCount.textContent = stats.statuses || 0;
+      if (membersCount) membersCount.textContent = stats.members || 0;
+      if (queueCount) queueCount.textContent = stats.queuedItems || 0;
+      
+      // Update status indicator
+      const statusDot = document.getElementById('syncStatusDot');
+      const statusText = document.getElementById('syncStatusText');
+      const statusIndicator = document.getElementById('syncStatus');
+      
+      if (statusIndicator && statusText) {
+        if (stats.queuedItems > 0) {
+          statusIndicator.className = 'status-indicator syncing';
+          statusText.textContent = `Синхронизация (${stats.queuedItems} в очереди)...`;
+        } else {
+          statusIndicator.className = 'status-indicator online';
+          statusText.textContent = 'Синхронизировано';
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Failed to load stats:', error);
+  }
+}
+
+function showAuthMessage(message, type = 'info') {
+  const msgEl = document.getElementById('authMessage');
+  msgEl.textContent = message;
+  msgEl.className = `auth-message ${type}`;
+  msgEl.style.display = 'block';
+  
+  if (type === 'success') {
+    setTimeout(() => {
+      msgEl.style.display = 'none';
+    }, 5000);
+  }
+}
+
 // --- Data Loading ---
 
 async function loadSettings() {
-  const settings = await chrome.storage.local.get([
-    'syncMode', 'teamId', 'userEmail', 'userName', 'userColor', 'customStatuses', 'officeDetectionEnabled', 'smartFieldConfig'
-  ]);
+  try {
+    const settings = await chrome.storage.local.get([
+      'syncMode', 'customStatuses', 'officeDetectionEnabled', 'smartFieldConfig', 'copypasteTemplate'
+    ]);
 
-  // Sync Mode
-  const syncMode = settings.syncMode || 'personal';
-  const modeInput = document.querySelector(`input[name="syncMode"][value="${syncMode}"]`);
-  if (modeInput) modeInput.checked = true;
+    // Sync Mode
+    const syncMode = settings.syncMode || 'personal';
+    const modeInput = document.querySelector(`input[name="syncMode"][value="${syncMode}"]`);
+    if (modeInput) modeInput.checked = true;
 
-  // Office Detection
-  document.getElementById('officeDetectionToggle').checked = settings.officeDetectionEnabled !== false;
+    // Office Detection
+    const officeToggle = document.getElementById('officeDetectionToggle');
+    if (officeToggle) {
+      officeToggle.checked = settings.officeDetectionEnabled !== false;
+    }
 
-  // Team Settings
-  document.getElementById('teamId').value = settings.teamId || '';
-  document.getElementById('userEmail').value = settings.userEmail || '';
-  document.getElementById('userName').value = settings.userName || '';
+    // Custom Statuses
+    await loadCustomStatuses();
+    
+    // Issue Data
+    await loadIssueDataList();
 
-  // Color Picker
-  const userColor = settings.userColor || '#0969da';
-  const colorSelector = document.getElementById('colorSelector');
-  const colors = ['#0969da', '#2da44e', '#9a6700', '#cf222e', '#8250df', '#e36209'];
-  colorSelector.innerHTML = colors.map(color =>
-    `<div class="color-option" data-color="${color}" style="background-color: ${color};"></div>`
-  ).join('');
-  const selectedOption = colorSelector.querySelector(`[data-color="${userColor}"]`);
-  if (selectedOption) {
-    selectedOption.classList.add('selected');
-  }
-
-  // Custom Statuses
-  await loadCustomStatuses();
-  
-  // Issue Data
-  await loadIssueDataList();
-
-  // Copypaste Template
-  const { copypasteTemplate } = await chrome.storage.local.get('copypasteTemplate');
-  document.getElementById('copypasteTemplate').value = copypasteTemplate || ``;
-  
-  // Load Field Priorities
-  if (settings.smartFieldConfig) {
-    loadFieldPriorities(settings.smartFieldConfig);
+    // Copypaste Template
+    const templateTextarea = document.getElementById('copypasteTemplate');
+    if (templateTextarea) {
+      templateTextarea.value = settings.copypasteTemplate || '';
+    }
+    
+    // Load Field Priorities
+    if (settings.smartFieldConfig) {
+      loadFieldPriorities(settings.smartFieldConfig);
+    }
+  } catch (error) {
+    console.error('❌ Error loading settings:', error);
+    showToast('Ошибка загрузки настроек: ' + error.message, 'error');
   }
 }
 
@@ -188,6 +381,229 @@ function showToast(message, type = 'success') {
 // --- Event Listeners ---
 
 function setupEventListeners() {
+  // === Supabase Auth Events ===
+  
+  // Sign In
+  document.getElementById('signInBtn').addEventListener('click', async () => {
+    if (!syncManager) {
+      showAuthMessage('Supabase не инициализирован. Проверьте config.json', 'error');
+      return;
+    }
+    
+    const email = document.getElementById('authEmail').value.trim();
+    const password = document.getElementById('authPassword').value;
+    
+    if (!email || !password) {
+      showAuthMessage('Заполните email и пароль', 'error');
+      return;
+    }
+    
+    const btn = document.getElementById('signInBtn');
+    btn.disabled = true;
+    btn.textContent = 'Вход...';
+    
+    try {
+      const result = await syncManager.signIn(email, password);
+      
+      if (result.success) {
+        showAuthMessage('Вход выполнен успешно!', 'success');
+        await updateAuthUI(true, result.user);
+        await checkTeamStatus();
+        await updateSyncStats();
+        
+        // Clear fields
+        document.getElementById('authEmail').value = '';
+        document.getElementById('authPassword').value = '';
+      } else {
+        showAuthMessage('Ошибка входа: ' + result.error, 'error');
+      }
+    } catch (error) {
+      showAuthMessage('Ошибка: ' + error.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Войти';
+    }
+  });
+  
+  // Sign Up
+  document.getElementById('signUpBtn').addEventListener('click', async () => {
+    if (!syncManager) {
+      showAuthMessage('Supabase не инициализирован. Проверьте config.json', 'error');
+      return;
+    }
+    
+    const email = document.getElementById('authEmail').value.trim();
+    const password = document.getElementById('authPassword').value;
+    
+    if (!email || !password) {
+      showAuthMessage('Заполните email и пароль', 'error');
+      return;
+    }
+    
+    if (password.length < 6) {
+      showAuthMessage('Пароль должен быть не менее 6 символов', 'error');
+      return;
+    }
+    
+    const btn = document.getElementById('signUpBtn');
+    btn.disabled = true;
+    btn.textContent = 'Регистрация...';
+    
+    try {
+      const result = await syncManager.signUp(email, password);
+      
+      if (result.success) {
+        showAuthMessage('Регистрация успешна! Проверьте email для подтверждения.', 'success');
+        // Clear fields
+        document.getElementById('authEmail').value = '';
+        document.getElementById('authPassword').value = '';
+      } else {
+        showAuthMessage('Ошибка регистрации: ' + result.error, 'error');
+      }
+    } catch (error) {
+      showAuthMessage('Ошибка: ' + error.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Зарегистрироваться';
+    }
+  });
+  
+  // Sign Out
+  document.getElementById('signOutBtn').addEventListener('click', async () => {
+    if (!syncManager) return;
+    if (!confirm('Вы уверены, что хотите выйти?')) return;
+    
+    const result = await syncManager.signOut();
+    if (result.success) {
+      showAuthMessage('Вы вышли из аккаунта', 'info');
+      await updateAuthUI(false);
+    } else {
+      showAuthMessage('Ошибка выхода: ' + result.error, 'error');
+    }
+  });
+  
+  // === Team Management Events ===
+  
+  // Create Team
+  document.getElementById('createTeamBtn').addEventListener('click', async () => {
+    if (!syncManager) {
+      showToast('Необходимо войти в аккаунт', 'error');
+      return;
+    }
+    
+    const teamName = document.getElementById('newTeamName').value.trim();
+    
+    if (!teamName) {
+      showToast('Введите название команды', 'error');
+      return;
+    }
+    
+    const btn = document.getElementById('createTeamBtn');
+    btn.disabled = true;
+    btn.textContent = 'Создание...';
+    
+    try {
+      const result = await syncManager.createTeam(teamName);
+      
+      if (result.success) {
+        showToast('Команда создана!');
+        await checkTeamStatus();
+        await updateSyncStats();
+        document.getElementById('newTeamName').value = '';
+      } else {
+        showToast('Ошибка: ' + result.error, 'error');
+      }
+    } catch (error) {
+      showToast('Ошибка: ' + error.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Создать команду';
+    }
+  });
+  
+  // Join Team
+  document.getElementById('joinTeamBtn').addEventListener('click', async () => {
+    if (!syncManager) {
+      showToast('Необходимо войти в аккаунт', 'error');
+      return;
+    }
+    
+    const teamId = document.getElementById('joinTeamId').value.trim();
+    
+    if (!teamId) {
+      showToast('Введите Team ID', 'error');
+      return;
+    }
+    
+    const btn = document.getElementById('joinTeamBtn');
+    btn.disabled = true;
+    btn.textContent = 'Присоединение...';
+    
+    try {
+      const result = await syncManager.joinTeam(teamId);
+      
+      if (result.success) {
+        showToast('Вы присоединились к команде!');
+        await checkTeamStatus();
+        await updateSyncStats();
+        document.getElementById('joinTeamId').value = '';
+      } else {
+        showToast('Ошибка: ' + result.error, 'error');
+      }
+    } catch (error) {
+      showToast('Ошибка: ' + error.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Присоединиться';
+    }
+  });
+  
+  // Copy Team ID
+  document.getElementById('copyTeamIdBtn').addEventListener('click', () => {
+    const teamId = document.getElementById('currentTeamId').textContent;
+    navigator.clipboard.writeText(teamId).then(() => {
+      showToast('Team ID скопирован в буфер обмена');
+    });
+  });
+  
+  // Leave Team
+  document.getElementById('leaveTeamBtn').addEventListener('click', async () => {
+    if (!confirm('Вы уверены, что хотите покинуть команду? Все синхронизированные данные останутся доступны другим участникам.')) return;
+    
+    showToast('Функция выхода из команды будет добавлена позже', 'info');
+    // TODO: Implement leave team
+  });
+  
+  // === Sync Stats Events ===
+  
+  // Refresh Stats
+  document.getElementById('refreshStatsBtn').addEventListener('click', async () => {
+    await updateSyncStats();
+    showToast('Статистика обновлена');
+  });
+  
+  // Force Sync
+  document.getElementById('forceSyncBtn').addEventListener('click', async () => {
+    if (!syncManager) return;
+    
+    const btn = document.getElementById('forceSyncBtn');
+    btn.disabled = true;
+    btn.textContent = 'Синхронизация...';
+    
+    try {
+      await syncManager.processSyncQueue();
+      await updateSyncStats();
+      showToast('Синхронизация завершена');
+    } catch (error) {
+      showToast('Ошибка синхронизации: ' + error.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Синхронизировать сейчас';
+    }
+  });
+  
+  // === Original Event Listeners ===
+  
   // Tab navigation
   document.querySelectorAll('.nav-tab').forEach(tab => {
     tab.addEventListener('click', () => {
@@ -200,10 +616,17 @@ function setupEventListeners() {
 
   // Sync mode change
   document.querySelectorAll('input[name="syncMode"]').forEach(radio => {
-    radio.addEventListener('change', (e) => {
+    radio.addEventListener('change', async (e) => {
         const mode = e.target.value;
         updateModeUI(mode);
-        chrome.storage.local.set({ syncMode: mode });
+        await chrome.storage.local.set({ syncMode: mode });
+        
+        if (mode === 'team') {
+          // Initialize Supabase if not already
+          if (!syncManager) {
+            await initializeSupabaseSync();
+          }
+        }
     });
   });
   
@@ -211,25 +634,6 @@ function setupEventListeners() {
   document.getElementById('officeDetectionToggle').addEventListener('change', (e) => {
       chrome.storage.local.set({ officeDetectionEnabled: e.target.checked });
       showToast('Настройки сохранены');
-  });
-
-  // Color picker
-  document.getElementById('colorSelector').addEventListener('click', (e) => {
-    if (e.target.classList.contains('color-option')) {
-      document.querySelectorAll('.color-option').forEach(opt => opt.classList.remove('selected'));
-      e.target.classList.add('selected');
-      chrome.storage.local.set({ userColor: e.target.dataset.color });
-    }
-  });
-  
-  // Connect button
-  document.getElementById('connectBtn').addEventListener('click', () => {
-      const teamId = document.getElementById('teamId').value;
-      const userEmail = document.getElementById('userEmail').value;
-      const userName = document.getElementById('userName').value;
-      chrome.storage.local.set({ teamId, userEmail, userName });
-      showToast('Настройки подключения сохранены');
-      // Add connection logic here
   });
 
   // Status creation form

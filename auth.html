@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jira Notes - Вход</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .container {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      width: 100%;
+      max-width: 400px;
+      padding: 40px;
+    }
+
+    .logo {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+
+    .logo h1 {
+      color: #333;
+      font-size: 28px;
+      margin-bottom: 8px;
+    }
+
+    .logo p {
+      color: #666;
+      font-size: 14px;
+    }
+
+    .tabs {
+      display: flex;
+      margin-bottom: 30px;
+      border-bottom: 2px solid #e0e0e0;
+    }
+
+    .tab {
+      flex: 1;
+      padding: 12px;
+      text-align: center;
+      cursor: pointer;
+      color: #666;
+      font-weight: 500;
+      transition: all 0.3s;
+      border-bottom: 3px solid transparent;
+      margin-bottom: -2px;
+    }
+
+    .tab.active {
+      color: #667eea;
+      border-bottom-color: #667eea;
+    }
+
+    .tab:hover {
+      color: #667eea;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    .form-group label {
+      display: block;
+      margin-bottom: 8px;
+      color: #333;
+      font-weight: 500;
+      font-size: 14px;
+    }
+
+    .form-group input {
+      width: 100%;
+      padding: 12px 16px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 14px;
+      transition: border-color 0.3s;
+    }
+
+    .form-group input:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+
+    .form-group input:disabled {
+      background: #f5f5f5;
+      cursor: not-allowed;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 14px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+      margin-top: 10px;
+    }
+
+    .btn:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+    }
+
+    .btn:active:not(:disabled) {
+      transform: translateY(0);
+    }
+
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .message {
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      font-size: 14px;
+      display: none;
+    }
+
+    .message.error {
+      background: #fee;
+      color: #c33;
+      border: 1px solid #fcc;
+    }
+
+    .message.success {
+      background: #efe;
+      color: #3c3;
+      border: 1px solid #cfc;
+    }
+
+    .message.info {
+      background: #eef;
+      color: #33c;
+      border: 1px solid #ccf;
+    }
+
+    .divider {
+      text-align: center;
+      margin: 20px 0;
+      color: #999;
+      font-size: 14px;
+      position: relative;
+    }
+
+    .divider::before,
+    .divider::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      width: 40%;
+      height: 1px;
+      background: #e0e0e0;
+    }
+
+    .divider::before {
+      left: 0;
+    }
+
+    .divider::after {
+      right: 0;
+    }
+
+    .help-text {
+      text-align: center;
+      margin-top: 20px;
+      color: #666;
+      font-size: 13px;
+    }
+
+    .help-text a {
+      color: #667eea;
+      text-decoration: none;
+    }
+
+    .help-text a:hover {
+      text-decoration: underline;
+    }
+
+    .loading {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 3px solid rgba(255, 255, 255, 0.3);
+      border-radius: 50%;
+      border-top-color: white;
+      animation: spin 0.8s linear infinite;
+      margin-right: 8px;
+      vertical-align: middle;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    #signup-form {
+      display: none;
+    }
+
+    .config-section {
+      margin-top: 30px;
+      padding-top: 30px;
+      border-top: 2px solid #e0e0e0;
+    }
+
+    .config-section h3 {
+      color: #333;
+      margin-bottom: 15px;
+      font-size: 18px;
+    }
+
+    .config-section p {
+      color: #666;
+      font-size: 13px;
+      line-height: 1.6;
+      margin-bottom: 15px;
+    }
+
+    .config-section code {
+      background: #f5f5f5;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">
+      <h1>🔐 Jira Notes Sync</h1>
+      <p>Синхронизация заметок в команде</p>
+    </div>
+
+    <div id="message" class="message"></div>
+
+    <div class="tabs">
+      <div class="tab active" data-tab="signin">Вход</div>
+      <div class="tab" data-tab="signup">Регистрация</div>
+    </div>
+
+    <!-- Форма входа -->
+    <form id="signin-form">
+      <div class="form-group">
+        <label for="signin-email">Email</label>
+        <input type="email" id="signin-email" required placeholder="your@email.com">
+      </div>
+      <div class="form-group">
+        <label for="signin-password">Пароль</label>
+        <input type="password" id="signin-password" required placeholder="Минимум 6 символов">
+      </div>
+      <button type="submit" class="btn">Войти</button>
+    </form>
+
+    <!-- Форма регистрации -->
+    <form id="signup-form">
+      <div class="form-group">
+        <label for="signup-email">Email</label>
+        <input type="email" id="signup-email" required placeholder="your@email.com">
+      </div>
+      <div class="form-group">
+        <label for="signup-password">Пароль</label>
+        <input type="password" id="signup-password" required placeholder="Минимум 6 символов">
+      </div>
+      <div class="form-group">
+        <label for="signup-password-confirm">Подтвердите пароль</label>
+        <input type="password" id="signup-password-confirm" required placeholder="Повторите пароль">
+      </div>
+      <button type="submit" class="btn">Зарегистрироваться</button>
+    </form>
+
+    <div class="config-section">
+      <h3>⚙️ Настройка Supabase</h3>
+      <p>
+        Для работы синхронизации нужно указать URL и ключ вашего Supabase проекта 
+        в файле <code>config.json</code>:
+      </p>
+      <div class="form-group">
+        <label for="supabase-url">Supabase URL</label>
+        <input type="text" id="supabase-url" placeholder="https://xxxxx.supabase.co" readonly>
+      </div>
+      <div class="form-group">
+        <label for="supabase-key">Anon Key</label>
+        <input type="text" id="supabase-key" placeholder="eyJhbGc..." readonly>
+      </div>
+    </div>
+
+    <div class="help-text">
+      Нужна помощь? См. <a href="SYNC_SETUP.md" target="_blank">SYNC_SETUP.md</a>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="auth.js"></script>
+</body>
+</html>
