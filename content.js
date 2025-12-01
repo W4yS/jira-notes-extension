@@ -3415,5 +3415,5 @@ class JiraNotesExtension {
 }
 
 // Запускаем расширение
-const extension = new JiraNotesExtension();
-extension.init();
+window.extension = new JiraNotesExtension();
+window.extension.init();
