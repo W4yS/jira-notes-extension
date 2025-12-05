@@ -489,7 +489,7 @@ class SupabaseSync {
       await this.supabase.removeChannel(this.realtimeChannel);
     }
 
-    // Подписываемся на изменения в заметках и статусах команды
+    // Подписываемся на изменения в заметках, статусах, комментариях и статусах команды
     this.realtimeChannel = this.supabase
       .channel(`team_${this.currentTeamId}`)
       .on(
@@ -511,6 +511,26 @@ class SupabaseSync {
           filter: `team_id=eq.${this.currentTeamId}`
         },
         (payload) => this.handleStatusChange(payload)
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'issue_comments',
+          filter: `team_id=eq.${this.currentTeamId}`
+        },
+        (payload) => this.handleCommentChange(payload)
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'team_statuses',
+          filter: `team_id=eq.${this.currentTeamId}`
+        },
+        (payload) => this.handleTeamStatusChange(payload)
       )
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
@@ -545,6 +565,28 @@ class SupabaseSync {
         issueKey: newRecord?.issue_key || oldRecord?.issue_key,
         data: newRecord
       }
+    }));
+  }
+
+  handleCommentChange(payload) {
+    console.log('💬 Real-time comment update:', payload);
+    
+    const { eventType, new: newRecord, old: oldRecord } = payload;
+    
+    window.dispatchEvent(new CustomEvent('comment-changed', {
+      detail: {
+        eventType,
+        issueKey: newRecord?.issue_key || oldRecord?.issue_key,
+        comment: newRecord
+      }
+    }));
+  }
+
+  handleTeamStatusChange(payload) {
+    console.log('📊 Real-time team status update:', payload);
+    
+    window.dispatchEvent(new CustomEvent('team-statuses-changed', {
+      detail: { payload }
     }));
   }
 
@@ -715,6 +757,234 @@ class SupabaseSync {
     } catch (error) {
       console.error('❌ Failed to get stats:', error);
       return null;
+    }
+  }
+
+  // ========== Глобальные статусы команды ==========
+
+  async getTeamStatuses() {
+    if (!this.currentTeamId) return { success: false, statuses: [] };
+
+    try {
+      const { data, error } = await this.supabase
+        .from('team_statuses')
+        .select('*')
+        .eq('team_id', this.currentTeamId)
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true });
+
+      if (error) throw error;
+
+      console.log('📊 Team statuses loaded:', data?.length || 0);
+      return { success: true, statuses: data || [] };
+    } catch (error) {
+      console.error('❌ Failed to get team statuses:', error);
+      return { success: false, statuses: [], error: error.message };
+    }
+  }
+
+  async createTeamStatus(name, color = '#3B82F6', icon = '●') {
+    if (!this.currentTeamId) return { success: false };
+
+    try {
+      const user = await this.getCurrentUser();
+      if (!user) throw new Error('User not authenticated');
+
+      // Получить максимальный sort_order
+      const { data: existing } = await this.supabase
+        .from('team_statuses')
+        .select('sort_order')
+        .eq('team_id', this.currentTeamId)
+        .order('sort_order', { ascending: false })
+        .limit(1);
+
+      const sort_order = (existing?.[0]?.sort_order || -1) + 1;
+
+      const { data, error } = await this.supabase
+        .from('team_statuses')
+        .insert([{
+          team_id: this.currentTeamId,
+          name,
+          color,
+          icon,
+          sort_order,
+          created_by: user.id
+        }])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      console.log('✅ Team status created:', name);
+      return { success: true, status: data };
+    } catch (error) {
+      console.error('❌ Failed to create team status:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async updateTeamStatus(statusId, updates) {
+    if (!this.currentTeamId) return { success: false };
+
+    try {
+      const { data, error } = await this.supabase
+        .from('team_statuses')
+        .update(updates)
+        .eq('id', statusId)
+        .eq('team_id', this.currentTeamId)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      console.log('✅ Team status updated:', statusId);
+      return { success: true, status: data };
+    } catch (error) {
+      console.error('❌ Failed to update team status:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async deleteTeamStatus(statusId) {
+    if (!this.currentTeamId) return { success: false };
+
+    try {
+      const { error } = await this.supabase
+        .from('team_statuses')
+        .update({ is_active: false })
+        .eq('id', statusId)
+        .eq('team_id', this.currentTeamId);
+
+      if (error) throw error;
+
+      console.log('🗑️ Team status deleted:', statusId);
+      return { success: true };
+    } catch (error) {
+      console.error('❌ Failed to delete team status:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // ========== Комментарии ==========
+
+  async getComments(issueKey, limit = 100) {
+    if (!this.currentTeamId) return { success: false, comments: [] };
+
+    try {
+      const { data, error } = await this.supabase
+        .from('issue_comments')
+        .select(`
+          id,
+          text,
+          created_at,
+          updated_at,
+          is_edited,
+          user_id,
+          author:user_id(id, email)
+        `)
+        .eq('team_id', this.currentTeamId)
+        .eq('issue_key', issueKey)
+        .order('created_at', { ascending: true })
+        .limit(limit);
+
+      if (error) throw error;
+
+      console.log('💬 Comments loaded:', data?.length || 0);
+      return { success: true, comments: data || [] };
+    } catch (error) {
+      console.error('❌ Failed to get comments:', error);
+      return { success: false, comments: [], error: error.message };
+    }
+  }
+
+  async addComment(issueKey, text) {
+    if (!this.currentTeamId) {
+      console.warn('⚠️ No team selected, comment not saved');
+      return { success: false, error: 'No team selected' };
+    }
+
+    try {
+      const user = await this.getCurrentUser();
+      if (!user) throw new Error('User not authenticated');
+
+      if (!text || text.trim().length === 0) {
+        throw new Error('Comment cannot be empty');
+      }
+
+      if (text.length > 5000) {
+        throw new Error('Comment is too long (max 5000 characters)');
+      }
+
+      const { data, error } = await this.supabase
+        .from('issue_comments')
+        .insert([{
+          issue_key: issueKey,
+          team_id: this.currentTeamId,
+          user_id: user.id,
+          text: text.trim()
+        }])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      console.log('💬 Comment added:', issueKey);
+      return { success: true, comment: data };
+    } catch (error) {
+      console.error('❌ Failed to add comment:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async editComment(commentId, newText) {
+    try {
+      const user = await this.getCurrentUser();
+      if (!user) throw new Error('User not authenticated');
+
+      if (!newText || newText.trim().length === 0) {
+        throw new Error('Comment cannot be empty');
+      }
+
+      if (newText.length > 5000) {
+        throw new Error('Comment is too long (max 5000 characters)');
+      }
+
+      const { data, error } = await this.supabase
+        .from('issue_comments')
+        .update({
+          text: newText.trim(),
+          is_edited: true,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', commentId)
+        .eq('user_id', user.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      console.log('✏️ Comment edited:', commentId);
+      return { success: true, comment: data };
+    } catch (error) {
+      console.error('❌ Failed to edit comment:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async deleteComment(commentId) {
+    try {
+      const { error } = await this.supabase
+        .from('issue_comments')
+        .delete()
+        .eq('id', commentId);
+
+      if (error) throw error;
+
+      console.log('🗑️ Comment deleted:', commentId);
+      return { success: true };
+    } catch (error) {
+      console.error('❌ Failed to delete comment:', error);
+      return { success: false, error: error.message };
     }
   }
 }

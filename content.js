@@ -354,6 +354,13 @@ class JiraNotesExtension {
   // Загрузка таблицы соответствий из code.json
   async loadAddressMapping() {
     try {
+      // Проверяем что chrome.runtime доступен (расширение не перезагружено)
+      if (!chrome.runtime?.id) {
+        console.warn('⚠️ Extension context invalidated, skipping address mapping load');
+        this.addressMapping = { codes: [], addresses: [], entries: [], mappingList: [] };
+        return;
+      }
+      
       const response = await fetch(chrome.runtime.getURL('code.json'));
       const data = await response.json();
       // Используем вынесенный модуль парсинга JiraParser
@@ -362,9 +369,15 @@ class JiraNotesExtension {
         : { codes: [], addresses: [], entries: [], mappingList: [] };
       console.log('📋 Address mapping loaded via parser module:', this.addressMapping.entries?.length || 0, 'codes');
     } catch (error) {
-      console.error('❌ Failed to load address mapping:', error);
-      // Fallback на пустую структуру
-      this.addressMapping = { codes: [], addresses: [], entries: [], mappingList: [] };
+      // Проверяем если это ошибка инвалидации контекста
+      if (error.message?.includes('Extension context invalidated')) {
+        console.warn('⚠️ Extension was reloaded, please refresh the page');
+        this.addressMapping = { codes: [], addresses: [], entries: [], mappingList: [] };
+      } else {
+        console.error('❌ Failed to load address mapping:', error);
+        // Fallback на пустую структуру
+        this.addressMapping = { codes: [], addresses: [], entries: [], mappingList: [] };
+      }
     }
   }
 
@@ -505,6 +518,12 @@ class JiraNotesExtension {
 
   // Запуск основной логики
   async start() {
+    // Проверяем что контекст расширения не был инвалидирован
+    if (!chrome.runtime?.id) {
+      console.error('❌ Extension context invalidated. Please refresh the page (F5).');
+      return;
+    }
+    
     // ОЧИЩАЕМ ВСЕ СТАРЫЕ ЭЛЕМЕНТЫ при инициализации расширения
     this.cleanupOldElements();
     
@@ -966,6 +985,7 @@ class JiraNotesExtension {
       }
 
       const targetIssueKey = this.currentIssueKey;
+      
       const existingPanel = document.querySelector('[data-jira-notes-panel="true"]');
       if (existingPanel) {
         this.log('♻️ Removing old panel before creating new one...');
@@ -1028,9 +1048,9 @@ class JiraNotesExtension {
     panel.setAttribute('data-jira-notes-panel', 'true');
 
     const statusButtons = statuses.map(status => `
-      <button class="jira-status-btn" data-status="${status.id}" title="${status.name}">
-        <span class="status-dot" style="background-color: ${status.color};"></span>
-        ${status.name}
+      <button class="jira-status-option" data-status="${status.id}" data-color="${status.color}">
+        <span class="status-option-dot" style="background-color: ${status.color}"></span>
+        <span class="status-option-name">${status.name}</span>
       </button>
     `).join('');
 
@@ -1043,27 +1063,61 @@ class JiraNotesExtension {
         </div>
       </div>
       <div class="jira-notes-content">
-        <div>
-          <div class="jira-notes-markers-label">Статус</div>
-          <div class="jira-notes-markers-container">
-            ${statusButtons}
-            <button class="jira-status-btn" data-status="" title="Очистить статус">
-              <span class="status-dot" style="background-color: var(--jpn-color-fg-subtle);"></span>
-              Очистить
+        <!-- Статусы в кастомном dropdown -->
+        <div class="jira-notes-status-section">
+          <div class="jira-notes-status-dropdown">
+            <button class="jira-notes-status-button" id="jira-notes-status-button">
+              <span class="status-button-dot"></span>
+              <span class="status-button-text">Выберите статус</span>
+              <svg class="status-button-arrow" width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M6 9L1 4h10z" fill="currentColor"/>
+              </svg>
             </button>
+            <div class="jira-notes-status-menu" id="jira-notes-status-menu">
+              ${statusButtons}
+            </div>
+          </div>
+          <button class="jira-notes-action-btn jira-copypaste-quick" id="jira-copypaste-quick" title="Копипаста (Ctrl+Shift+C)">
+            📋
+          </button>
+          <button class="jira-status-btn jira-status-clear" data-status="" title="Очистить статус">
+            ✕
+          </button>
+        </div>
+
+        <!-- Заметки в виде чата -->
+        <div class="jira-notes-chat-container">
+          <div class="jira-notes-chat-messages" id="jira-notes-chat-messages">
           </div>
         </div>
-        <div>
-          <div class="jira-notes-textarea-label">Заметка</div>
-          <textarea class="jira-notes-textarea" placeholder="Добавьте личную заметку..."></textarea>
+
+        <!-- Командные комментарии -->
+        <div class="jira-notes-team-section" id="team-comments-section" style="display: none;">
+          <div class="jira-notes-team-label">
+            💬 Команда
+            <button class="jira-team-toggle" title="Свернуть/развернуть">▼</button>
+          </div>
+          <div class="jira-team-comments-list" id="team-comments-list">
+            <div class="team-comments-loading">Загрузка комментариев...</div>
+          </div>
+          <textarea class="jira-team-comment-input" placeholder="Добавить командный комментарий..." rows="2"></textarea>
+          <button class="jira-team-comment-btn">Отправить</button>
         </div>
-        <div class="jira-notes-copypaste-section">
+
+        <!-- Поле ввода внизу (как в ТГ) -->
+        <div class="jira-notes-chat-input-area">
+          <textarea class="jira-notes-textarea" placeholder="Сообщение..."></textarea>
+          <button class="jira-notes-send-btn" title="Отправить (Ctrl+Enter)">➤</button>
+        </div>
+
+        <!-- Кнопки действий -->
+        <div class="jira-notes-actions">
           <button class="jira-copypaste-btn" title="Скопировать заполненный шаблон в буфер обмена">
             📋 Копипаста
           </button>
-        </div>
-        <div class="jira-notes-footer">
-          Автосохранение включено
+          <button class="jira-modal-btn" title="Показать командные комментарии">
+            💬 Команда
+          </button>
         </div>
       </div>
     `;
@@ -1073,6 +1127,32 @@ class JiraNotesExtension {
     this.restorePosition(panel);
     this.makeDraggable(panel);
     this.protectPanel(panel);
+
+    // Загружаем сохраненный чат
+    const savedChat = await this.loadChat(this.currentIssueKey);
+    const chatArray = Array.isArray(savedChat) ? savedChat : [];
+    if (chatArray && chatArray.length > 0) {
+      const chatMessages = panel.querySelector('#jira-notes-chat-messages');
+      if (chatMessages) {
+        chatMessages.innerHTML = ''; // Очищаем
+        chatArray.forEach(msg => {
+          const messageEl = document.createElement('div');
+          messageEl.className = `jira-chat-message ${msg.author === 'self' ? 'jira-chat-message-own' : 'jira-chat-message-other'}`;
+          messageEl.innerHTML = `
+            <div class="jira-chat-message-bubble">${this.escapeHtml(msg.text)}</div>
+            <div class="jira-chat-message-time">${msg.time}</div>
+          `;
+          chatMessages.appendChild(messageEl);
+        });
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      }
+    } else {
+      // Если нет сохраненного чата, очищаем чат
+      const chatMessages = panel.querySelector('#jira-notes-chat-messages');
+      if (chatMessages) {
+        chatMessages.innerHTML = '';
+      }
+    }
 
     return panel;
   }
@@ -1119,17 +1199,11 @@ class JiraNotesExtension {
     const textarea = panel.querySelector('.jira-notes-textarea');
     const closeButton = panel.querySelector('.jira-notes-close');
     const minimizeButton = panel.querySelector('.jira-notes-minimize');
-    const statusButtons = panel.querySelectorAll('.jira-status-btn');
+    const statusButton = panel.querySelector('#jira-notes-status-button');
+    const statusMenu = panel.querySelector('#jira-notes-status-menu');
+    const statusOptions = panel.querySelectorAll('.jira-status-option');
+    const statusClearBtn = panel.querySelector('.jira-status-clear');
     const copypasteButton = panel.querySelector('.jira-copypaste-btn');
-
-    // Автосохранение при вводе с debounce
-    let saveTimeout;
-    const debouncedSave = () => {
-      clearTimeout(saveTimeout);
-      saveTimeout = setTimeout(() => this.saveNotes(), 800); // Уменьшили с 1000 до 800мс
-    };
-    
-    textarea.addEventListener('input', debouncedSave, { passive: true });
 
     // Закрытие окна (не удаляем, просто скрываем)
     closeButton.addEventListener('click', (e) => {
@@ -1144,18 +1218,126 @@ class JiraNotesExtension {
       await this.togglePanelCollapse(panel);
     }, { passive: false });
 
-    // Обработчики статусов с делегированием
-    statusButtons.forEach(button => {
-      button.addEventListener('click', async () => {
-        const status = button.getAttribute('data-status');
-        await this.setStatus(status);
-        
-        // Извлекаем адрес при установке статуса (если еще не сохранен и если автоопределение включено)
-        if (this.officeDetectionEnabled && !this.addressCache[this.currentIssueKey]) {
-          this.extractAndSaveAddress();
+    // Обработчик кастомного dropdown
+    if (statusButton && statusMenu) {
+      // Открыть/закрыть меню
+      statusButton.addEventListener('click', (e) => {
+        e.stopPropagation();
+        statusMenu.classList.toggle('active');
+      });
+
+      // Выбор статуса
+      statusOptions.forEach(option => {
+        option.addEventListener('click', async () => {
+          const status = option.getAttribute('data-status');
+          const color = option.getAttribute('data-color');
+          const name = option.querySelector('.status-option-name').textContent;
+
+          // Обновляем кнопку
+          const dot = statusButton.querySelector('.status-button-dot');
+          const text = statusButton.querySelector('.status-button-text');
+          dot.style.backgroundColor = color;
+          text.textContent = name;
+
+          // Обновляем активный статус
+          statusOptions.forEach(opt => opt.classList.remove('active'));
+          option.classList.add('active');
+
+          // Закрываем меню
+          statusMenu.classList.remove('active');
+
+          // Сохраняем статус
+          await this.setStatus(status);
+          
+          // Извлекаем адрес при установке статуса
+          if (this.officeDetectionEnabled && !this.addressCache[this.currentIssueKey]) {
+            this.extractAndSaveAddress();
+          }
+        });
+      });
+
+      // Закрыть меню при клике снаружи
+      document.addEventListener('click', (e) => {
+        if (!statusButton.contains(e.target) && !statusMenu.contains(e.target)) {
+          statusMenu.classList.remove('active');
         }
+      });
+    }
+
+    // Обработчик кнопки очистки статуса
+    if (statusClearBtn) {
+      statusClearBtn.addEventListener('click', async () => {
+        await this.setStatus('');
+        // Сбросить кнопку
+        if (statusButton) {
+          const dot = statusButton.querySelector('.status-button-dot');
+          const text = statusButton.querySelector('.status-button-text');
+          dot.style.backgroundColor = 'var(--jpn-color-border-muted)';
+          text.textContent = 'Выберите статус';
+        }
+        // Убрать активный класс со всех опций
+        if (statusOptions) {
+          statusOptions.forEach(opt => opt.classList.remove('active'));
+        }
+      }, { passive: false });
+    }
+
+    // Обработчик быстрой кнопки копипасты в статусах
+    const copypasteQuickBtn = panel.querySelector('#jira-copypaste-quick');
+    if (copypasteQuickBtn) {
+      copypasteQuickBtn.addEventListener('click', async () => {
+        await this.generateAndCopyCopypaste();
       }, { passive: true });
-    });
+    }
+    const chatMessages = panel.querySelector('#jira-notes-chat-messages');
+    const sendBtn = panel.querySelector('.jira-notes-send-btn');
+    
+    if (textarea && sendBtn && chatMessages) {
+      // Отправка заметки по нажатию кнопки
+      sendBtn.addEventListener('click', async () => {
+        const text = textarea.value.trim();
+        if (text) {
+          // Добавляем сообщение в чат (своё)
+          const messageEl = document.createElement('div');
+          messageEl.className = 'jira-chat-message jira-chat-message-own';
+          messageEl.innerHTML = `
+            <div class="jira-chat-message-bubble">${this.escapeHtml(text)}</div>
+            <div class="jira-chat-message-time">${new Date().toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'})}</div>
+          `;
+          chatMessages.appendChild(messageEl);
+          chatMessages.scrollTop = chatMessages.scrollHeight;
+          
+          // Очищаем поле
+          textarea.value = '';
+          textarea.style.height = 'auto';
+          
+          // Сохраняем чат и заметки
+          await this.saveChatMessage(this.currentIssueKey, text);
+          await this.saveNotes(false);
+        }
+      }, { passive: false });
+      
+      // Отправка по Enter (или Ctrl+Enter)
+      textarea.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          if (e.ctrlKey || !e.shiftKey) {
+            // Enter или Ctrl+Enter отправляет
+            e.preventDefault();
+            sendBtn.click();
+          }
+          // Shift+Enter добавляет новую строку (по умолчанию)
+        } else if (e.key === 's' && e.ctrlKey) {
+          e.preventDefault();
+          this.saveNotes(true);
+        }
+      });
+      
+      // Автоматическое расширение высоты текстареа
+      textarea.addEventListener('input', () => {
+        textarea.style.height = 'auto';
+        textarea.style.height = Math.min(textarea.scrollHeight, 100) + 'px';
+      });
+    }
 
     // Обработчик кнопки копипасты
     if (copypasteButton) {
@@ -1164,14 +1346,55 @@ class JiraNotesExtension {
       }, { passive: true });
     }
 
-    // Горячие клавиши
-    textarea.addEventListener('keydown', (e) => {
-      if (e.ctrlKey && e.key === 's') {
-        e.preventDefault();
-        clearTimeout(saveTimeout); // Отменяем отложенное сохранение
-        this.saveNotes(true);
-      }
-    });
+    // Обработчик кнопки модалки (Команда/Комментарии) - теперь показывает/скрывает встроенную секцию
+    const modalBtn = panel.querySelector('.jira-modal-btn');
+    const teamSection = panel.querySelector('#team-comments-section');
+    
+    if (modalBtn && teamSection) {
+      modalBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        
+        if (teamSection.style.display === 'none') {
+          // Показываем секцию команды
+          teamSection.style.display = 'flex';
+          modalBtn.classList.add('active');
+          
+          // Загружаем комментарии
+          await this.loadTeamComments(this.currentIssueKey, teamSection);
+        } else {
+          // Скрываем секцию команды
+          teamSection.style.display = 'none';
+          modalBtn.classList.remove('active');
+        }
+      }, { passive: false });
+    }
+
+    // Обработчик отправки командного комментария
+    const commentBtn = panel.querySelector('.jira-team-comment-btn');
+    const commentInput = panel.querySelector('.jira-team-comment-input');
+    
+    if (commentBtn && commentInput && teamSection) {
+      commentBtn.addEventListener('click', async () => {
+        const text = commentInput.value.trim();
+        if (text && this.currentIssueKey) {
+          // Очищаем поле
+          commentInput.value = '';
+          
+          // Здесь потом будет отправка на Supabase
+          console.log('💬 Команда комментарий:', text, 'для', this.currentIssueKey);
+          
+          // Перезагружаем комментарии
+          await this.loadTeamComments(this.currentIssueKey, teamSection);
+        }
+      }, { passive: false });
+      
+      // Отправка на Enter
+      commentInput.addEventListener('keydown', (e) => {
+        if (e.ctrlKey && e.key === 'Enter') {
+          commentBtn.click();
+        }
+      });
+    }
 
     console.log('Event listeners attached to panel');
   }
@@ -1445,9 +1668,20 @@ class JiraNotesExtension {
         textarea.value = notes;
       }
 
+      // Обновляем чат для текущей задачи
+      await this.updateChatDisplay(this.currentIssueKey);
+
       // Загружаем статус
       if (status) {
         this.displayCurrentStatus(status);
+      }
+      
+      // Убедимся, что панель полностью раскрыта
+      const panel = document.querySelector('.jira-notes-panel');
+      if (panel) {
+        panel.classList.remove('collapsed');
+        panel.style.display = 'block';
+        console.log(`✅ Panel visible for ${this.currentIssueKey}, display: ${panel.style.display}, classes: ${panel.className}`);
       }
       
       // УДАЛЕНО: Больше не извлекаем данные здесь - они уже извлечены в injectNotesPanel()
@@ -1464,6 +1698,36 @@ class JiraNotesExtension {
       }
       console.error('Error loading notes:', error);
     }
+    
+    // Trigger modal update when issue changes (for team sync mode)
+    if (this.modalManager && window.syncManager?.hasTeam?.()) {
+      const issueData = {
+        summary: this.extractIssueSummary(),
+        address: this.addressCache[this.currentIssueKey] || '',
+        code: this.codeCache[this.currentIssueKey] || '',
+        deviceType: this.deviceTypeCache[this.currentIssueKey] || '',
+        note: await this.getNote(this.currentIssueKey)
+      };
+      
+      // Update modal if it's open
+      const modal = document.getElementById('issue-modal');
+      if (modal && modal.style.display !== 'none') {
+        this.modalManager.openModal(this.currentIssueKey, issueData);
+      }
+    }
+  }
+  // Извлекаем summary текущей задачи
+  extractIssueSummary() {
+    const summary = document.querySelector('[data-testid="issue.views.issue-base.foundation.summary.heading"]');
+    if (summary) {
+      return summary.textContent.trim();
+    }
+    
+    // Fallback: поиск по другим селекторам
+    const alt1 = document.querySelector('h1');
+    if (alt1) return alt1.textContent.trim();
+    
+    return `Task ${this.currentIssueKey}`;
   }
 
   // Извлекаем и сохраняем адрес из открытой задачи - ОПТИМИЗИРОВАННАЯ ВЕРСИЯ v3
@@ -2142,6 +2406,121 @@ class JiraNotesExtension {
     return variants;
   }
 
+  // Сохранение сообщения чата
+  async saveChatMessage(issueKey, messageText) {
+    try {
+      if (!chrome.runtime?.id) return;
+
+      console.log(`💾 Saving chat message for issue: ${issueKey}`);
+
+      // Получаем текущие сообщения
+      const result = await chrome.storage.local.get(`chat_${issueKey}`);
+      const messages = result[`chat_${issueKey}`] || [];
+
+      // Добавляем новое сообщение
+      const newMessage = {
+        id: Date.now(),
+        text: messageText,
+        timestamp: new Date().toISOString(),
+        time: new Date().toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'}),
+        author: 'self'
+      };
+      
+      messages.push(newMessage);
+
+      // Ограничиваем историю до 100 сообщений
+      if (messages.length > 100) {
+        messages.shift();
+      }
+
+      // Сохраняем локально
+      await chrome.storage.local.set({ [`chat_${issueKey}`]: messages });
+      console.log('💬 Chat message saved for', issueKey, '- total messages:', messages.length);
+      
+      // Синхронизируем с Supabase если включен режим команды
+      const settings = await chrome.storage.local.get('syncMode');
+      if (settings.syncMode === 'team' && window.syncManager) {
+        try {
+          const result = await window.syncManager.addComment(issueKey, messageText);
+          if (result.success) {
+            console.log('☁️ Chat message synced to Supabase');
+          } else {
+            console.warn('⚠️ Failed to sync chat to Supabase:', result.error);
+          }
+        } catch (error) {
+          console.error('❌ Supabase sync error:', error);
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error saving chat message:', error);
+    }
+  }
+
+  // Загрузка чата для задачи
+  async loadChat(issueKey) {
+    try {
+      const result = await chrome.storage.local.get(`chat_${issueKey}`);
+      return result[`chat_${issueKey}`] || [];
+    } catch (error) {
+      console.error('❌ Error loading chat:', error);
+      return [];
+    }
+  }
+
+  // Обновление отображения чата в интерфейсе
+  async updateChatDisplay(issueKey) {
+    try {
+      const chatContainer = document.querySelector('.jira-notes-chat-container');
+      const chatMessages = document.querySelector('#jira-notes-chat-messages');
+      
+      if (!chatMessages) {
+        console.warn(`⚠️ Chat messages element not found for ${issueKey}, panel may not exist yet`);
+        return; // Панель еще не открыта
+      }
+
+      const savedChat = await this.loadChat(issueKey);
+      const chatArray = Array.isArray(savedChat) ? savedChat : [];
+      console.log(`📝 Updating chat display for ${issueKey}, messages: ${chatArray.length}, element found: ${!!chatMessages}, HTML before clear: ${chatMessages.innerHTML.length}`);
+
+      chatMessages.innerHTML = ''; // Очищаем старый чат
+      console.log(`📝 Chat cleared, innerHTML now: ${chatMessages.innerHTML.length}`);
+
+      if (chatArray && chatArray.length > 0) {
+        chatArray.forEach((msg, idx) => {
+          const messageEl = document.createElement('div');
+          messageEl.className = `jira-chat-message ${msg.author === 'self' ? 'jira-chat-message-own' : 'jira-chat-message-other'}`;
+          messageEl.innerHTML = `
+            <div class="jira-chat-message-bubble">${this.escapeHtml(msg.text)}</div>
+            <div class="jira-chat-message-time">${msg.time}</div>
+          `;
+          chatMessages.appendChild(messageEl);
+          console.log(`📝 Added message ${idx + 1} of ${chatArray.length}`);
+        });
+      }
+      
+      console.log(`📝 Chat update complete, final innerHTML: ${chatMessages.innerHTML.length}`);
+      
+      // Принудительный пересчет высоты и скролл
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+      
+      // Force reflow для правильного отображения
+      void chatMessages.offsetHeight;
+      if (chatContainer) {
+        void chatContainer.offsetHeight;
+      }
+      
+      // Пересчитываем flex размеры
+      if (chatContainer) {
+        chatContainer.style.flex = '0 1 auto';
+        void chatContainer.offsetHeight;
+        chatContainer.style.flex = '1';
+      }
+      
+    } catch (error) {
+      console.error('❌ Error updating chat display:', error);
+    }
+  }
+
   // Сохранение заметок
   async saveNotes(showNotification = false) {
     const textarea = document.querySelector('.jira-notes-textarea');
@@ -2166,6 +2545,43 @@ class JiraNotesExtension {
         return; // Тихо выходим
       }
       console.error('Error saving notes:', error);
+    }
+  }
+
+  // Загрузка командных комментариев в встроенную секцию
+  async loadTeamComments(issueKey, teamSection) {
+    const commentsList = teamSection.querySelector('#team-comments-list');
+    if (!commentsList) return;
+
+    try {
+      // TODO: Здесь потом будет загрузка с Supabase через syncService
+      // Пока показываем placeholder
+      const mockComments = [
+        {
+          author: 'Вы',
+          text: 'Проверим сегодня',
+          time: '10 минут назад'
+        },
+        {
+          author: 'Иван',
+          text: 'ОК, жду вас',
+          time: '15 минут назад'
+        }
+      ];
+
+      commentsList.innerHTML = mockComments.map(comment => `
+        <div class="team-comment-item">
+          <div class="team-comment-author">${comment.author}</div>
+          <div class="team-comment-text">${comment.text}</div>
+          <div class="team-comment-time">${comment.time}</div>
+        </div>
+      `).join('');
+
+      // Скролим вниз
+      commentsList.scrollTop = commentsList.scrollHeight;
+    } catch (error) {
+      console.error('Error loading team comments:', error);
+      commentsList.innerHTML = '<div class="team-comments-loading">Ошибка загрузки</div>';
     }
   }
 
@@ -2566,6 +2982,8 @@ class JiraNotesExtension {
             title.textContent = newIssueKey;
           }
           panel.style.display = 'block';
+          // Убедимся, что панель не свёрнута
+          panel.classList.remove('collapsed');
         }
         
         // КРИТИЧНО: Извлекаем данные новой задачи
